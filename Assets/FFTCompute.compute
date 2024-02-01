@@ -1,7 +1,7 @@
 #pragma kernel CS_InitializeSpectrum
 #pragma kernel CS_GenerateSpectrum
 #pragma kernel CS_SlowCompute
-//#pragma kernel CS_PrecomputeButterfly
+#pragma kernel CS_PrecomputeButterfly
 #pragma kernel CS_HorizontalFFT
 #pragma kernel CS_VerticalFFT
 //#pragma kernel CS_Permute
@@ -99,16 +99,17 @@ void CS_InitializeSpectrum (uint3 id : SV_DispatchThreadID)
 	
 	if (kLength < 0.00001)
 	{
-		kLength = 0.00001;
+		InitialSpectrum[id.xy] = 0.0f;
+		return;
 	}
 	
 	float kLength2 = kLength * kLength;
 	float kLength4 = kLength2 * kLength2;
 	
-	float2 w = float2(1.0, 1.0) * 40;
+	float2 w = float2(1.0, 1.0);
 	
-	float w_length = length(w);
-	float L = (w_length * w_length / 9.81);
+	//float w_length = 1000;
+	float L = 1000;
 	float L2 = L * L;
 	
 	float damping = 0.001;
@@ -150,7 +151,7 @@ void CS_GenerateSpectrum(uint3 id : SV_DispatchThreadID)
 		magnitude = 0.00001;
 	}
 	
-	float T = 100.0f;
+	float T = 1000.0f;
 	float w_0 = 2.0f * PI / T;
 	
 	// calculate dispersion relation
@@ -249,7 +250,7 @@ float2 ComplexExp(float2 a)
 {
 	return float2(cos(a.y), sin(a.y)) * exp(a.x);
 }
-/*
+
 [numthreads(1, 8, 1)]
 void CS_PrecomputeButterfly(uint3 id : SV_DispatchThreadID)
 {	
@@ -261,6 +262,7 @@ void CS_PrecomputeButterfly(uint3 id : SV_DispatchThreadID)
 	ButterflyTexture[id.xy] = float4(twiddle.x, twiddle.y, i, i + b);
 	ButterflyTexture[uint2(id.x, id.y + Size / 2)] = float4(-twiddle.x, -twiddle.y, i, i + b);
 }
+/*
 // FFT functions for horizontal and vertical
 [numthreads(8, 8, 1)]
 void CS_HorizontalFFT (uint3 id : SV_DispatchThreadID)
@@ -305,9 +307,7 @@ void CS_VerticalFFT (uint3 id : SV_DispatchThreadID)
 #define SIZE 512
 #define LOG_SIZE 9
 
-RWTexture2DArray<float4> _FourierTarget;
-bool _Direction;
-
+RWTexture2D<float4> _FourierTarget;
 groupshared float4 fftGroupBuffer[2][SIZE];
 
 void ButterflyValues(uint step, uint index, out uint2 indices, out float2 twiddle)
@@ -349,19 +349,13 @@ float4 FFT(uint threadIndex, float4 input)
 [numthreads(SIZE, 1, 1)]
 void CS_HorizontalFFT(uint3 id : SV_DISPATCHTHREADID)
 {
-	for (int i = 0; i < 8; ++i)
-	{
-		_FourierTarget[uint3(id.xy, i)] = FFT(id.x, _FourierTarget[uint3(id.xy, i)]);
-	}
+	_FourierTarget[id.xy] = FFT(id.x, _FourierTarget[id.xy]);
 }
 
 [numthreads(SIZE, 1, 1)]
 void CS_VerticalFFT(uint3 id : SV_DISPATCHTHREADID)
 {
-	for (int i = 0; i < 8; ++i)
-	{
-		_FourierTarget[uint3(id.yx, i)] = FFT(id.x, _FourierTarget[uint3(id.yx, i)]);
-	}
+	_FourierTarget[id.yx] = FFT(id.x, _FourierTarget[id.yx]);
 }
 
 [numthreads(8, 8, 1)]
@@ -393,7 +387,7 @@ float4 Permute(float4 data, float3 id)
 [numthreads(8, 8, 1)]
 void CS_AssembleMaps(uint3 id : SV_DISPATCHTHREADID)
 {
-	float4 htildeDisplacement = Permute(Spectrum[id.xy], id) / 64.0;
+	float4 htildeDisplacement = Permute(Spectrum[id.xy], id);
 	float4 htildeSlope = Permute(Normals[id.xy], id);
 
 	float2 dxdz = htildeDisplacement.rg;
@@ -403,9 +397,9 @@ void CS_AssembleMaps(uint3 id : SV_DISPATCHTHREADID)
 	
 	float2 _Lambda = float2(0.9, 0.9);
         
-	float3 displacement = float3(_Lambda.x * dxdz.x, dydxz.x, _Lambda.y * dxdz.y) * 10.0;
+	float3 displacement = float3(_Lambda.x * dxdz.x, dydxz.x, _Lambda.y * dxdz.y);
 	float2 slopes = dyxdyz.xy / (1 + abs(dxxdzz * _Lambda));
 
-	Displacement[id.xy] = float4(displacement, 1.0);
+	Spectrum[id.xy] = float4(displacement, 1.0);
 	Normals[id.xy] = float4(slopes, 0.0, 0.0);
 }
