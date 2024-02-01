@@ -1,0 +1,411 @@
+#pragma kernel CS_InitializeSpectrum
+#pragma kernel CS_GenerateSpectrum
+#pragma kernel CS_SlowCompute
+//#pragma kernel CS_PrecomputeButterfly
+#pragma kernel CS_HorizontalFFT
+#pragma kernel CS_VerticalFFT
+//#pragma kernel CS_Permute
+#pragma kernel CS_AssembleMaps
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+//RWTexture2D<float4> Result;
+#define PI 3.14159265358979323846
+
+RWTexture2D<float4> InitialSpectrum;
+RWTexture2D<float4> Spectrum;
+RWTexture2D<float4> Displacement;
+RWTexture2D<float4> Normals;
+
+RWTexture2D<float4> ButterflyTexture;
+RWTexture2D<float4> pingpong0;
+RWTexture2D<float4> pingpong1;
+
+uint _N, _L;
+uint Stage;
+bool PingPong;
+float _Time;
+
+float2 GaussianNum(float2 u)
+{
+	float x = cos(2 * PI * u.x) * sqrt(-2.0 * log(u.x));
+	float y = cos(2 * PI * u.y) * sqrt(-2.0 * log(u.y));
+	
+	return float2(x, y);
+}
+
+float hash(float p)
+{
+	p = frac(p * .1031);
+	p *= p + 33.33;
+	p *= p + p;
+	return frac(p);
+}
+
+struct SpectrumParameters
+{
+	float scale;
+	float angle;
+	float spreadBlend;
+	float swell;
+	float alpha;
+	float peakOmega;
+	float gamma;
+	float shortWavesFade;
+};
+
+float TMACorrection(float omega)
+{
+	float omegaH = omega * sqrt(20.0 / 9.81);
+	if (omegaH <= 1.0f)
+		return 0.5f * omegaH * omegaH;
+	if (omegaH < 2.0f)
+		return 1.0f - 0.5f * (2.0f - omegaH) * (2.0f - omegaH);
+
+	return 1.0f;
+}
+
+float JONSWAP(float omega, SpectrumParameters spectrum)
+{
+	float sigma = (omega <= spectrum.peakOmega) ? 0.07f : 0.09f;
+
+	float r = exp(-(omega - spectrum.peakOmega) * (omega - spectrum.peakOmega) / 2.0f / sigma / sigma / spectrum.peakOmega / spectrum.peakOmega);
+	
+	float oneOverOmega = 1.0f / omega;
+	float peakOmegaOverOmega = spectrum.peakOmega / omega;
+	return spectrum.scale * TMACorrection(omega) * spectrum.alpha * 9.81 * 9.81
+		* oneOverOmega * oneOverOmega * oneOverOmega * oneOverOmega * oneOverOmega
+		* exp(-1.25f * peakOmegaOverOmega * peakOmegaOverOmega * peakOmegaOverOmega * peakOmegaOverOmega)
+		* pow(abs(spectrum.gamma), r);
+}
+
+
+[numthreads(8,8,1)]
+void CS_InitializeSpectrum (uint3 id : SV_DispatchThreadID)
+{
+	int kx = id.x;
+	int ky = id.y;
+	
+	float seed = hash(ky * _N + kx);
+	seed = hash(seed);
+	
+	float2 Gaussians = GaussianNum(float2(seed, hash(seed)));
+	
+	// initially id ranges from 0 to _N I believe
+	float halfN = _N / 2.0f;
+	float2 k = (id.xy - halfN) * 2.0f * PI / _L; // divide by _L when you get that included
+	
+	float kLength = length(k);
+	
+	if (kLength < 0.00001)
+	{
+		kLength = 0.00001;
+	}
+	
+	float kLength2 = kLength * kLength;
+	float kLength4 = kLength2 * kLength2;
+	
+	float2 w = float2(1.0, 1.0) * 40;
+	
+	float w_length = length(w);
+	float L = (w_length * w_length / 9.81);
+	float L2 = L * L;
+	
+	float damping = 0.001;
+	float l2 = L2 * damping * damping;
+	
+	float cosineFactor = dot(normalize(k), normalize(w));
+	cosineFactor = pow(cosineFactor, 8);
+	
+	float A = 4.0;
+	float phillips = A * exp(-1.0 / (kLength2 * L2)) / kLength4 * cosineFactor * exp(-kLength2 * l2);
+	
+	float2 iv = float2(Gaussians.x, Gaussians.y) * sqrt(phillips / 2.0);
+	
+	InitialSpectrum[id.xy] = float4(iv.x, iv.y, 0.0, 0.0);
+}
+
+float2 euler(float ik)
+{
+	return float2(cos(ik), sin(ik));
+}
+
+float2 complexMult(float2 u, float2 v)
+{
+	// u = a + bi
+	// v = c  + di
+	return float2((u.x * v.x) - (u.y * v.y), (u.x * v.y) + (v.x * u.y));
+}
+
+[numthreads(8, 8, 1)]
+void CS_GenerateSpectrum(uint3 id : SV_DispatchThreadID)
+{
+	// we need time as a variable
+	float halfN = _N / 2.0f;
+	float2 k = (id.xy - halfN) * 2.0f * PI / _L;
+	float magnitude = length(k);
+	
+	if (magnitude < 0.00001)
+	{
+		magnitude = 0.00001;
+	}
+	
+	float T = 100.0f;
+	float w_0 = 2.0f * PI / T;
+	
+	// calculate dispersion relation
+	// use magnitude of k
+	float dispersion = sqrt(9.81 * magnitude);
+	dispersion = floor(dispersion / w_0) * w_0;
+	
+	float2 sampleReal = InitialSpectrum[id.xy].xy;
+	float2 sampleConjugate = InitialSpectrum[float2((_N - id.x) % _N, (_N - id.y) % _N)].xy;
+	sampleConjugate.y *= -1;
+	
+	float2 exp = euler(dispersion * _Time);
+	
+	float2 realComponent = complexMult(sampleReal, exp);
+	float2 complexComponent = complexMult(sampleConjugate, float2(exp.x, -exp.y));
+	
+	float2 htilde = realComponent + complexComponent;
+	float2 ih = float2(-htilde.y, htilde.x);
+	
+	float kMagRcp = rcp(magnitude);
+	
+	//float2 dz = float2(0.0, -k.y / magnitude);
+	//float2 h_dz = complexMult(dz, h_dy);
+	
+	//Spectrum[id.xy] = float4(h_dy, 0.0, 0.0);
+	
+	float2 displacementX = ih * k.x * kMagRcp;
+	float2 displacementY = htilde;
+	float2 displacementZ = ih * k.y * kMagRcp;
+
+	float2 displacementX_dx = -htilde * k.x * k.x * kMagRcp;
+	float2 displacementY_dx = ih * k.x;
+	float2 displacementZ_dx = -htilde * k.x * k.y * kMagRcp;
+
+	float2 displacementY_dz = ih * k.y;
+	float2 displacementZ_dz = -htilde * k.y * k.y * kMagRcp;
+
+	float2 htildeDisplacementX = float2(displacementX.x - displacementZ.y, displacementX.y + displacementZ.x);
+	float2 htildeDisplacementZ = float2(displacementY.x - displacementZ_dx.y, displacementY.y + displacementZ_dx.x);
+        
+	float2 htildeSlopeX = float2(displacementY_dx.x - displacementY_dz.y, displacementY_dx.y + displacementY_dz.x);
+	float2 htildeSlopeZ = float2(displacementX_dx.x - displacementZ_dz.y, displacementX_dx.y + displacementZ_dz.x);
+
+	Spectrum[id.xy] = float4(htildeDisplacementX, htildeDisplacementZ);
+	Normals[id.xy] = float4(htildeSlopeX, htildeSlopeZ);
+}
+
+[numthreads(8, 8, 1)]
+void CS_SlowCompute(uint3 id : SV_DispatchThreadID)
+{
+	float2 h_val = float2(0.0, 0.0);
+	float3 normal = float3(0.0, 0.0, 0.0);
+	float2 D = float2(0.0, 0.0);
+	
+	float halfN = _N / 2.0f;
+	
+	// discrete fourier transform baye beeeee, this is the slow method!
+	
+	float kx, kz;
+	float2 h_tilde, k;
+	float2 x = (id.xy - halfN) * 2.0f * PI / _L;
+	
+	for (uint z = 0; z < _N; z++)
+	{
+		kz = (z - halfN) * 2.0f * PI / _L;
+		for (uint i = 0; i < _N; i++)
+		{
+			kx = (i - halfN) * 2.0f * PI / _L;
+			uint2 coords = uint2(i, z);
+			k = float2(kx, kz);
+
+			float k_length = length(k);
+			h_tilde = Spectrum[coords].xy;
+			float2 exp = euler(dot(k, x));
+			float2 result = complexMult(h_tilde, exp);
+			h_val += result;
+			normal += float3(-kx * result.y, 0.0f, -kz * result.y);
+			
+			if (k_length >= 0.00001)
+			{
+				D += float2(kx / k_length * result.y, kz / k_length * result.y);
+			}
+		}
+	}
+	
+	normal = (float3(0, 1, 0) - normal);
+	Displacement[id.xy] = float4(h_val, D);
+	Normals[id.xy] = float4(normal, 0.0);
+}
+
+
+// some cool FFT stuff happens here now
+
+// precompute the butterfly texture data
+float2 ComplexExp(float2 a)
+{
+	return float2(cos(a.y), sin(a.y)) * exp(a.x);
+}
+/*
+[numthreads(1, 8, 1)]
+void CS_PrecomputeButterfly(uint3 id : SV_DispatchThreadID)
+{	
+	float Size = _N;
+	uint b = _N >> (id.x + 1);
+	float2 mult = 2 * PI * float2(0, 1) / Size;
+	uint i = (2 * b * (id.y / b) + id.y % b) % Size;
+	float2 twiddle = ComplexExp(-mult * ((id.y / b) * b));
+	ButterflyTexture[id.xy] = float4(twiddle.x, twiddle.y, i, i + b);
+	ButterflyTexture[uint2(id.x, id.y + Size / 2)] = float4(-twiddle.x, -twiddle.y, i, i + b);
+}
+// FFT functions for horizontal and vertical
+[numthreads(8, 8, 1)]
+void CS_HorizontalFFT (uint3 id : SV_DispatchThreadID)
+{
+	float4 data = ButterflyTexture[uint2(Stage, id.x)];
+	
+	uint2 sample1 = uint2(data.z, id.y);
+	uint2 sample2 = uint2(data.w, id.y);
+	
+	// when pingpong0 is input, then pingpong1 must be output
+	
+	if (PingPong)
+	{
+		pingpong1[id.xy] = float4(pingpong0[sample1].rg + complexMult(float2(data.x, data.y), pingpong0[sample2].rg), 0.0, 1.0);
+	}
+	else
+	{
+		pingpong0[id.xy] = float4(pingpong1[sample1].rg + complexMult(float2(data.x, data.y), pingpong1[sample2].rg), 0.0, 1.0);
+	}
+}
+
+[numthreads(8, 8, 1)]
+void CS_VerticalFFT (uint3 id : SV_DispatchThreadID)
+{
+	float4 data = ButterflyTexture[uint2(Stage, id.y)];
+
+	uint2 sample1 = uint2(id.x, data.z);
+	uint2 sample2 = uint2(id.x, data.w);
+	
+	if (PingPong)
+	{
+		pingpong1[id.xy] = float4(pingpong0[sample1].rg +
+		complexMult(float2(data.x, data.y), pingpong0[sample2].rg), 0.0, 1.0);
+	}
+	else
+	{
+		pingpong0[id.xy] = float4(pingpong1[sample1].rg +
+		complexMult(float2(data.x, data.y), pingpong1[sample2].rg), 0.0, 1.0);
+	}
+}*/
+
+#define SIZE 512
+#define LOG_SIZE 9
+
+RWTexture2DArray<float4> _FourierTarget;
+bool _Direction;
+
+groupshared float4 fftGroupBuffer[2][SIZE];
+
+void ButterflyValues(uint step, uint index, out uint2 indices, out float2 twiddle)
+{
+	const float twoPi = 6.28318530718;
+	uint b = SIZE >> (step + 1);
+	uint w = b * (index / b);
+	uint i = (w + index) % SIZE;
+	sincos(-twoPi / SIZE * w, twiddle.y, twiddle.x);
+
+    //This is what makes it the inverse FFT
+	twiddle.y = -twiddle.y;
+	indices = uint2(i, i + b);
+}
+
+float4 FFT(uint threadIndex, float4 input)
+{
+	fftGroupBuffer[0][threadIndex] = input;
+	GroupMemoryBarrierWithGroupSync();
+	bool flag = false;
+
+    [unroll]
+	for (uint step = 0; step < LOG_SIZE; ++step)
+	{
+		uint2 inputsIndices;
+		float2 twiddle;
+		ButterflyValues(step, threadIndex, inputsIndices, twiddle);
+
+		float4 v = fftGroupBuffer[flag][inputsIndices.y];
+		fftGroupBuffer[!flag][threadIndex] = fftGroupBuffer[flag][inputsIndices.x] + float4(complexMult(twiddle, v.xy), complexMult(twiddle, v.zw));
+
+		flag = !flag;
+		GroupMemoryBarrierWithGroupSync();
+	}
+
+	return fftGroupBuffer[flag][threadIndex];
+}
+
+[numthreads(SIZE, 1, 1)]
+void CS_HorizontalFFT(uint3 id : SV_DISPATCHTHREADID)
+{
+	for (int i = 0; i < 8; ++i)
+	{
+		_FourierTarget[uint3(id.xy, i)] = FFT(id.x, _FourierTarget[uint3(id.xy, i)]);
+	}
+}
+
+[numthreads(SIZE, 1, 1)]
+void CS_VerticalFFT(uint3 id : SV_DISPATCHTHREADID)
+{
+	for (int i = 0; i < 8; ++i)
+	{
+		_FourierTarget[uint3(id.yx, i)] = FFT(id.x, _FourierTarget[uint3(id.yx, i)]);
+	}
+}
+
+[numthreads(8, 8, 1)]
+void CS_Permute(uint3 id : SV_DispatchThreadID)
+{
+	float2 perms = float2(1.0, -1.0);
+	uint index = (id.x + id.y) % 2;
+	float perm = perms[index];
+	
+	if (!PingPong)
+	{
+		float h = pingpong0[id.xy].r;
+		float v = perm * h / _N;
+		Displacement[id.xy] = float4(v, v, v, 1.0);
+	}
+	else
+	{
+		float h = pingpong1[id.xy].r;
+		float v = perm * h / _N;
+		Displacement[id.xy] = float4(v, v, v, 1.0);
+	}
+}
+
+float4 Permute(float4 data, float3 id)
+{
+	return data * (1.0f - 2.0f * ((id.x + id.y) % 2));
+}
+
+[numthreads(8, 8, 1)]
+void CS_AssembleMaps(uint3 id : SV_DISPATCHTHREADID)
+{
+	float4 htildeDisplacement = Permute(Spectrum[id.xy], id) / 64.0;
+	float4 htildeSlope = Permute(Normals[id.xy], id);
+
+	float2 dxdz = htildeDisplacement.rg;
+	float2 dydxz = htildeDisplacement.ba;
+	float2 dyxdyz = htildeSlope.rg;
+	float2 dxxdzz = htildeSlope.ba;
+	
+	float2 _Lambda = float2(0.9, 0.9);
+        
+	float3 displacement = float3(_Lambda.x * dxdz.x, dydxz.x, _Lambda.y * dxdz.y) * 10.0;
+	float2 slopes = dyxdyz.xy / (1 + abs(dxxdzz * _Lambda));
+
+	Displacement[id.xy] = float4(displacement, 1.0);
+	Normals[id.xy] = float4(slopes, 0.0, 0.0);
+}
