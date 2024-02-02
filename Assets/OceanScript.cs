@@ -30,9 +30,11 @@ public class OceanScript : MonoBehaviour
     {
         this.GetComponent<MeshFilter>().mesh = mesh = new Mesh();
         mesh.name = "Ocean Mesh";
+        mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
         vertices = new Vector3[(planeResolution + 1) * (planeResolution + 1)];
         float xPerStep = size.x / planeResolution;
         float zPerStep = size.y / planeResolution;
+
 
         Vector2[] uvs = new Vector2[vertices.Length];
         Vector4[] tangents = new Vector4[vertices.Length];
@@ -41,7 +43,7 @@ public class OceanScript : MonoBehaviour
         // this is a neat i = 0 trick to get the index
         for (int i = 0, z = 0; z < planeResolution + 1; z++) {
             for (int x = 0; x < planeResolution + 1; x++, i++) {
-                vertices[i] = new Vector3(x * xPerStep, 0, z * zPerStep);
+                vertices[i] = new Vector3(((float)x * xPerStep) - (size.y / 2) , 0, ((float)z * zPerStep) - (size.y / 2));
                 uvs[i] = new Vector2((float)x / planeResolution, (float)z / planeResolution);
                 tangents[i] = tangent;
             }
@@ -55,7 +57,7 @@ public class OceanScript : MonoBehaviour
         
         for (int row = 0; row < planeResolution; row++) {
             for (int column = 0; column < planeResolution; column++) {
-                int i = (row * planeResolution + row + column);
+                int i = (row * (planeResolution + 1) + column);
                 int idx = (row * planeResolution + column) * 6;
 
                 triangles[idx] = i;
@@ -150,7 +152,7 @@ public class OceanScript : MonoBehaviour
         CreatePlane();
         CreateMaterial();
 
-        int L = 128;
+        int L = 256;
 
         int logN = (int)Mathf.Log(_N, 2);
         threadGroupsX = Mathf.CeilToInt(_N / 8.0f);

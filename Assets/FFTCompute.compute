@@ -387,17 +387,18 @@ float4 Permute(float4 data, float3 id)
 [numthreads(8, 8, 1)]
 void CS_AssembleMaps(uint3 id : SV_DISPATCHTHREADID)
 {
-	float4 htildeDisplacement = Permute(Spectrum[id.xy], id);
-	float4 htildeSlope = Permute(Normals[id.xy], id);
+	float scale = 0.22 * float(_N);
+	float4 htildeDisplacement = Permute(Spectrum[id.xy], id) / scale;
+	float4 htildeSlope = Permute(Normals[id.xy], id) / scale;
 
 	float2 dxdz = htildeDisplacement.rg;
 	float2 dydxz = htildeDisplacement.ba;
 	float2 dyxdyz = htildeSlope.rg;
 	float2 dxxdzz = htildeSlope.ba;
 	
-	float2 _Lambda = float2(0.9, 0.9);
+	float2 _Lambda = float2(0.8, 0.8);
         
-	float3 displacement = float3(_Lambda.x * dxdz.x, dydxz.x, _Lambda.y * dxdz.y);
+	float3 displacement = float3(_Lambda.x * dxdz.x, dydxz.x * 0.6, _Lambda.y * dxdz.y);
 	float2 slopes = dyxdyz.xy / (1 + abs(dxxdzz * _Lambda));
 
 	Spectrum[id.xy] = float4(displacement, 1.0);

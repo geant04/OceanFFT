@@ -4,14 +4,14 @@ Shader "Custom/Ocean"
 {
     Properties
     {
-        _Color ("Color", Color) = (0.10, 0.55, 0.576,1)
-        _Ambient ("Ambient Color", Color) = (0.05, 0.34, 0.450, 1)
+        _Color ("Color", Color) = (0.2207784, 0.5124794, 0.5754717,1)
+        _Ambient ("Ambient Color", Color) = (0.1395514, 0.3668321, 0.4528302, 1)
         _SunColor ("Sun Color", Color) = (0.93, 0.93, 0.78,1)
         _MainTex ("Albedo (RGB)", 2D) = "white" {}
         _Glossiness ("Smoothness", Range(0,1)) = 0.5
         _Metallic ("Metallic", Range(0,1)) = 0.0
         _SunThreshold ("Sun Threshold", Range(-100, 100)) = 0.0
-        _Range ("Range", Range(0,1)) = 0.002
+        _Range ("Range", Range(0,1)) = 0.004
     }
     SubShader
     {
@@ -54,7 +54,7 @@ Shader "Custom/Ocean"
             
             float4 displacementData = tex2Dlod(_DisplacementTexture, float4(worldPos.xz * _Range, 0.0, 0.0));
 
-            i.vertex = UnityObjectToClipPos(vertexPosition + displacementData.xyz * float3(lambda, 0.01, lambda));
+            i.vertex = UnityObjectToClipPos(vertexPosition + displacementData.xyz * float3(1, 0.8, 1));
             i.uv = worldPos.xz;
             //i.uv = v.uv;
             i.viewDir = WorldSpaceViewDir(v.vertex);
@@ -67,7 +67,9 @@ Shader "Custom/Ocean"
             
             float4 displacementData = tex2Dlod(_DisplacementTexture, float4(uv * _Range, 0.0, 0.0));
             float4 normalData = tex2Dlod(_SlopeTexture, float4(uv * _Range, 0.0, 0.0));
-            float3 normal = normalize(normalData.xyz) * 0.10;
+            float3 normal = normalize(float3(-normalData.x, 1.0f, -normalData.y));
+            normal = normalize(UnityObjectToWorldNormal(normalize(normal))) * 0.40;
+
             float3 viewDir = normalize(i.viewDir);
 
             float3 lightVector = normalize(_WorldSpaceLightPos0);
@@ -76,27 +78,25 @@ Shader "Custom/Ocean"
             //float4 normalColor = _Color * diffuse;
 
             float3 reflectionVector = reflect(-viewDir, normal);
-            half4 skyData = UNITY_SAMPLE_TEXCUBE(unity_SpecCube0, normalize(reflectionVector + 0.05));
+            half4 skyData = UNITY_SAMPLE_TEXCUBE(unity_SpecCube0, reflectionVector + 0.02);
 
-            float4 normalColor = _Color * skyData * lerp(_Color, _Ambient, displacementData.g * 0.01 + diffuse);
+            float4 normalColor = _SunColor * lerp(_Ambient, _Color, displacementData.g * 4.0 + diffuse);
 
             half reflectionFactor = max(dot(viewDir, normal), 0.0);
-            //float4 reflectionColor = float4(lerp(normalColor, skyData.xyz, reflectionFactor), 0.0);
+            float4 reflectionColor = float4(lerp(normalColor, skyData.xyz, reflectionFactor), 0.0);
             
             float3 halfwayDir = normalize(_WorldSpaceLightPos0 + viewDir);
-            float spec = pow(max(dot(normalize(normal + displacementData.xyz), halfwayDir), 0.0), 32.0);
+            float spec = pow(max(dot(normalize(normal + displacementData.xyz), halfwayDir), 0.0), 8.0);
             float4 specColor = _LightColor0 * spec;
-            //specColor.a = (specColor.a > 0.98 + _SunThreshold * 0.02);
-
-            //float4 specColor = max(0, dot(_WorldSpaceLightPos0.xyz, reflect(-viewDir.xzy, normal.xzy))) * _LightColor0;
-            //specColor.a = (specColor.a > 0.98 + _SunThreshold * 0.02);
 
             float4 waterReflective = float4(0.02, 0.02, 0.02, 1.0);
-            float power = 0.7;
-            float4 fresnel_schlick = power * skyData * (waterReflective + (1 - waterReflective) * pow(1 - dot(normal * 0.05, halfwayDir), 2));
+            float power = 0.4;
+            float3 fresnelNormal = normalize(normal * float3(1, 1.0, 1));
+
+            float4 fresnel_schlick = power * skyData * (waterReflective + (1 - waterReflective) * pow(1 - max(dot(viewDir, fresnelNormal * 0.8), 0.0), 5.0f));
             
-            return normalColor + (specColor * 0.02) + 0;
-            //return float4(displacementData.g, 0.0, 0.0, 0.0);
+            return normalColor + (specColor * 0.02) + fresnel_schlick;
+            //return float4(normal, 0.0);
             //return normalData;
         }
 
