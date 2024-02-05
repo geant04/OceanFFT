@@ -4,9 +4,17 @@ Shader "Custom/Ocean"
 {
     Properties
     {
-        _Color ("Color", Color) = (0.2207784, 0.5124794, 0.5754717,1)
-        _Ambient ("Ambient Color", Color) = (0.1395514, 0.3668321, 0.4528302, 1)
+        // darker green colors
+        _Color ("Color", Color) = (0.21, 0.85, 0.84,1)
+        _Ambient ("Ambient Color", Color) = (0.11, 0.70, 0.75, 1)
         _SunColor ("Sun Color", Color) = (0.93, 0.93, 0.78,1)
+
+        /* brighter green colors
+        _Color ("Color", Color) = (0.26, 1, 0.98,1)
+        _Ambient ("Ambient Color", Color) = (0.35, 0.84, 0.89, 1)
+        _SunColor ("Sun Color", Color) = (0.93, 0.93, 0.78,1)
+        */
+
         _MainTex ("Albedo (RGB)", 2D) = "white" {}
         _Glossiness ("Smoothness", Range(0,1)) = 0.5
         _Metallic ("Metallic", Range(0,1)) = 0.0
@@ -53,8 +61,11 @@ Shader "Custom/Ocean"
             float3 worldPos = mul(unity_ObjectToWorld, v.vertex);
             
             float4 displacementData = tex2Dlod(_DisplacementTexture, float4(worldPos.xz * _Range, 0.0, 0.0));
+            float4 displacementData2 = tex2Dlod(_DisplacementTexture, float4(worldPos.xz * _Range * 0.15, 0.0, 0.0));
 
-            i.vertex = UnityObjectToClipPos(vertexPosition + displacementData.xyz * float3(1, 0.8, 1));
+            float4 totalDisplacement = displacementData * 0.4 + displacementData2 * 2.0;
+
+            i.vertex = UnityObjectToClipPos(vertexPosition + totalDisplacement.xyz * float3(1, 0.8, 1));
             i.uv = worldPos.xz;
             //i.uv = v.uv;
             i.viewDir = WorldSpaceViewDir(v.vertex);
@@ -66,7 +77,15 @@ Shader "Custom/Ocean"
             float2 uv = i.uv;
             
             float4 displacementData = tex2Dlod(_DisplacementTexture, float4(uv * _Range, 0.0, 0.0));
+            float4 displacementData2 = tex2Dlod(_DisplacementTexture, float4(uv * _Range * 0.05, 0.0, 0.0));
+
+            displacementData = displacementData + displacementData2 * 1.0;
+
             float4 normalData = tex2Dlod(_SlopeTexture, float4(uv * _Range, 0.0, 0.0));
+            float4 normalData2 = tex2Dlod(_SlopeTexture, float4(uv * _Range * 0.25, 0.0, 0.0));
+
+            normalData = normalData + normalData2 * 1.5;
+
             float3 normal = normalize(float3(-normalData.x, 1.0f, -normalData.y));
             normal = normalize(UnityObjectToWorldNormal(normalize(normal))) * 0.40;
 
@@ -80,24 +99,20 @@ Shader "Custom/Ocean"
             float3 reflectionVector = reflect(-viewDir, normal);
             half4 skyData = UNITY_SAMPLE_TEXCUBE(unity_SpecCube0, reflectionVector + 0.02);
 
-            float4 normalColor = _SunColor * lerp(_Ambient, _Color, displacementData.g * 4.0 + diffuse);
-
-            half reflectionFactor = max(dot(viewDir, normal), 0.0);
-            float4 reflectionColor = float4(lerp(normalColor, skyData.xyz, reflectionFactor), 0.0);
+            float4 normalColor = _Color * (_Ambient + diffuse) * lerp(_Ambient, _Color, displacementData.g * 2.0 + diffuse);
             
             float3 halfwayDir = normalize(_WorldSpaceLightPos0 + viewDir);
-            float spec = pow(max(dot(normalize(normal + displacementData.xyz), halfwayDir), 0.0), 8.0);
-            float4 specColor = _LightColor0 * spec;
+            float spec = pow(max(dot(normalize(normal), halfwayDir * 1.15), 0.0), 64.0);
+            float4 specColor = _LightColor0 * spec * 0.006;
 
             float4 waterReflective = float4(0.02, 0.02, 0.02, 1.0);
-            float power = 0.4;
+            float power = 0.70;
             float3 fresnelNormal = normalize(normal * float3(1, 1.0, 1));
 
             float4 fresnel_schlick = power * skyData * (waterReflective + (1 - waterReflective) * pow(1 - max(dot(viewDir, fresnelNormal * 0.8), 0.0), 5.0f));
             
-            return normalColor + (specColor * 0.02) + fresnel_schlick;
-            //return float4(normal, 0.0);
-            //return normalData;
+            return normalColor * 0.35 + (specColor * 0.001) + fresnel_schlick;
+            // 0.10 for darker
         }
 
         ENDCG

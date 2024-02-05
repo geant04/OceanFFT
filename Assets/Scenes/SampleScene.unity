@@ -221,7 +221,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   OceanComputeShader: {fileID: 7200000, guid: c710cf8bffb381b4cb71b2ad8371a8f4, type: 3}
   OceanShader: {fileID: 4800000, guid: 280f53e16333f7049ad4ee44668f3215, type: 3}
-  size: {x: 400, y: 400}
+  size: {x: 500, y: 500}
   planeResolution: 1000
   test: {fileID: 8400000, guid: a94bec53dc455b54ea459f583c867904, type: 2}
   spectrum: {fileID: 8400000, guid: 4a35356d6400d68499d5e5d181844763, type: 2}
@@ -257,7 +257,7 @@ Light:
   m_GameObject: {fileID: 705507993}
   m_Enabled: 1
   serializedVersion: 10
-  m_Type: 2
+  m_Type: 1
   m_Shape: 0
   m_Color: {r: 1, g: 0.95686275, b: 0.8392157, a: 1}
   m_Intensity: 25
