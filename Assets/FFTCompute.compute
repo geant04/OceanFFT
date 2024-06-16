@@ -93,7 +93,7 @@ void CS_InitializeSpectrum (uint3 id : SV_DispatchThreadID)
 	
 	// initially id ranges from 0 to _N I believe
 	float halfN = _N / 2.0f;
-	float2 k = (id.xy - halfN) * 2.0f * PI / _L; // divide by _L when you get that included
+	float2 k = (id.xy - halfN) * 2.0f * PI / _L;
 	
 	float kLength = length(k);
 	
@@ -108,7 +108,6 @@ void CS_InitializeSpectrum (uint3 id : SV_DispatchThreadID)
 	
 	float2 w = float2(1.0, 1.0);
 	
-	//float w_length = 1000;
 	float L = 1000;
 	float L2 = L * L;
 	
@@ -116,12 +115,13 @@ void CS_InitializeSpectrum (uint3 id : SV_DispatchThreadID)
 	float l2 = L2 * damping * damping;
 	
 	float cosineFactor = dot(normalize(k), normalize(w));
-	cosineFactor = pow(cosineFactor, 8);
+	cosineFactor = pow(cosineFactor, 2.0);
 	
 	float A = 4.0;
-	float phillips = A * exp(-1.0 / (kLength2 * L2)) / kLength4 * cosineFactor * exp(-kLength2 * l2);
+	float phillips = A * exp(-1.0 / (kLength2 * L2)) / kLength4 * cosineFactor;
 	
-	float2 iv = float2(Gaussians.x, Gaussians.y) * sqrt(phillips / 2.0);
+	float2 iv = normalize(float2(Gaussians.x, Gaussians.y)) * sqrt(phillips / 2.0);
+	//iv = normalize(iv);
 	
 	InitialSpectrum[id.xy] = float4(iv.x, iv.y, 0.0, 0.0);
 }
@@ -189,14 +189,14 @@ void CS_GenerateSpectrum(uint3 id : SV_DispatchThreadID)
 	float2 displacementY_dz = ih * k.y;
 	float2 displacementZ_dz = -htilde * k.y * k.y * kMagRcp;
 
-	float2 htildeDisplacementX = float2(displacementX.x - displacementZ.y, displacementX.y + displacementZ.x);
-	float2 htildeDisplacementZ = float2(displacementY.x - displacementZ_dx.y, displacementY.y + displacementZ_dx.x);
+	float2 dx_dz = float2(displacementX.x - displacementZ.y, displacementX.y + displacementZ.x);
+	float2 dy_dxz = float2(displacementY.x - displacementZ_dx.y, displacementY.y + displacementZ_dx.x);
         
-	float2 htildeSlopeX = float2(displacementY_dx.x - displacementY_dz.y, displacementY_dx.y + displacementY_dz.x);
-	float2 htildeSlopeZ = float2(displacementX_dx.x - displacementZ_dz.y, displacementX_dx.y + displacementZ_dz.x);
+	float2 dyx_dyz = float2(displacementY_dx.x - displacementY_dz.y, displacementY_dx.y + displacementY_dz.x);
+	float2 dxx_dzz = float2(displacementX_dx.x - displacementZ_dz.y, displacementX_dx.y + displacementZ_dz.x);
 
-	Spectrum[id.xy] = float4(htildeDisplacementX, htildeDisplacementZ);
-	Normals[id.xy] = float4(htildeSlopeX, htildeSlopeZ);
+	Spectrum[id.xy] = float4(dx_dz, dy_dxz);
+	Normals[id.xy] = float4(dyx_dyz, dxx_dzz);
 }
 
 [numthreads(8, 8, 1)]
@@ -242,10 +242,6 @@ void CS_SlowCompute(uint3 id : SV_DispatchThreadID)
 	Normals[id.xy] = float4(normal, 0.0);
 }
 
-
-// some cool FFT stuff happens here now
-
-// precompute the butterfly texture data
 float2 ComplexExp(float2 a)
 {
 	return float2(cos(a.y), sin(a.y)) * exp(a.x);
@@ -262,47 +258,6 @@ void CS_PrecomputeButterfly(uint3 id : SV_DispatchThreadID)
 	ButterflyTexture[id.xy] = float4(twiddle.x, twiddle.y, i, i + b);
 	ButterflyTexture[uint2(id.x, id.y + Size / 2)] = float4(-twiddle.x, -twiddle.y, i, i + b);
 }
-/*
-// FFT functions for horizontal and vertical
-[numthreads(8, 8, 1)]
-void CS_HorizontalFFT (uint3 id : SV_DispatchThreadID)
-{
-	float4 data = ButterflyTexture[uint2(Stage, id.x)];
-	
-	uint2 sample1 = uint2(data.z, id.y);
-	uint2 sample2 = uint2(data.w, id.y);
-	
-	// when pingpong0 is input, then pingpong1 must be output
-	
-	if (PingPong)
-	{
-		pingpong1[id.xy] = float4(pingpong0[sample1].rg + complexMult(float2(data.x, data.y), pingpong0[sample2].rg), 0.0, 1.0);
-	}
-	else
-	{
-		pingpong0[id.xy] = float4(pingpong1[sample1].rg + complexMult(float2(data.x, data.y), pingpong1[sample2].rg), 0.0, 1.0);
-	}
-}
-
-[numthreads(8, 8, 1)]
-void CS_VerticalFFT (uint3 id : SV_DispatchThreadID)
-{
-	float4 data = ButterflyTexture[uint2(Stage, id.y)];
-
-	uint2 sample1 = uint2(id.x, data.z);
-	uint2 sample2 = uint2(id.x, data.w);
-	
-	if (PingPong)
-	{
-		pingpong1[id.xy] = float4(pingpong0[sample1].rg +
-		complexMult(float2(data.x, data.y), pingpong0[sample2].rg), 0.0, 1.0);
-	}
-	else
-	{
-		pingpong0[id.xy] = float4(pingpong1[sample1].rg +
-		complexMult(float2(data.x, data.y), pingpong1[sample2].rg), 0.0, 1.0);
-	}
-}*/
 
 #define SIZE 512
 #define LOG_SIZE 9
@@ -386,21 +341,44 @@ float4 Permute(float4 data, float3 id)
 
 [numthreads(8, 8, 1)]
 void CS_AssembleMaps(uint3 id : SV_DISPATCHTHREADID)
-{
-	float scale = 0.22 * float(_N);
-	float4 htildeDisplacement = Permute(Spectrum[id.xy], id) / scale;
-	float4 htildeSlope = Permute(Normals[id.xy], id) / scale;
+{	
+	float amt = (_N);
+	float4 htildeDisplacement = Permute(Spectrum[id.xy], id) / amt;
+	float4 htildeSlope = Permute(Normals[id.xy], id) / amt;
 
 	float2 dxdz = htildeDisplacement.rg;
 	float2 dydxz = htildeDisplacement.ba;
 	float2 dyxdyz = htildeSlope.rg;
 	float2 dxxdzz = htildeSlope.ba;
 	
-	float2 _Lambda = float2(0.8, 0.8);
+	float2 _Lambda = float2(1.0, 1.0);
+	// * 0.6
         
-	float3 displacement = float3(_Lambda.x * dxdz.x, dydxz.x * 0.6, _Lambda.y * dxdz.y);
+	float3 displacement = float3(_Lambda.x * dxdz.x, dydxz.x, _Lambda.y * dxdz.y);
 	float2 slopes = dyxdyz.xy / (1 + abs(dxxdzz * _Lambda));
+	
+	
+	float lambda = 1.0;
 
-	Spectrum[id.xy] = float4(displacement, 1.0);
+	float jacobian = (1.0 + lambda * dxxdzz.x) + (1.0 + lambda * dxxdzz.y) - (lambda * dyxdyz.y) * (lambda * dyxdyz.y);
+	
+	float foamVal = Spectrum[id.xy].a;
+	
+	// dissipate
+	foamVal *= 0.015;
+	
+	foamVal = saturate(foamVal);
+	
+	// the inject..., 0.50 is our bias factor
+	float biasedJacobian = max(0.0f, -(jacobian));
+	
+	if (biasedJacobian > 0.90)
+	{
+		// another parameter to make sure that the foam doesn't look too freaky ig
+		foamVal += biasedJacobian * 0.25;
+	}
+
+
+	Spectrum[id.xy] = float4(displacement, foamVal);
 	Normals[id.xy] = float4(slopes, 0.0, 0.0);
 }

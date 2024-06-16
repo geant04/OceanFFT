@@ -16,11 +16,7 @@ public class OceanScript : MonoBehaviour
     Vector3[] vertices;
     Vector3[] normals;
 
-    private RenderTexture displacementMap,
-                          slopeMap,
-                          initialSpectrum;
-
-    public RenderTexture test, spectrum, displacement, slope, butterfly, buffer, displacementX, displacementZ;
+    public RenderTexture test, spectrum, displacement, slope;
 
     private int threadGroupsX, threadGroupsY;
 
@@ -93,53 +89,6 @@ public class OceanScript : MonoBehaviour
         return rt;
     }
 
-    void IFFT(RenderTexture InputTexture, RenderTexture bufferTexture, RenderTexture OutTexture, bool outputToInput)
-    {
-        int logN = (int) Mathf.Log(_N, 2);
-        bool pingPong = false;
-
-        OceanComputeShader.SetTexture(4, "pingpong0", InputTexture);
-        OceanComputeShader.SetTexture(4, "pingpong1", bufferTexture);
-        OceanComputeShader.SetTexture(4, "ButterflyTexture", butterfly);
-
-        for (int i = 0; i < logN; i++) {
-            pingPong = !pingPong;
-            OceanComputeShader.SetInt("_N", _N);
-            OceanComputeShader.SetInt("Stage", i);
-            OceanComputeShader.SetBool("PingPong", pingPong);
-            OceanComputeShader.Dispatch(4, threadGroupsX, threadGroupsY, 1);
-        }
-
-        OceanComputeShader.SetTexture(5, "pingpong0", bufferTexture);
-        OceanComputeShader.SetTexture(5, "pingpong1", InputTexture);
-        OceanComputeShader.SetTexture(5, "ButterflyTexture", butterfly);
-
-        for (int i = 0; i < logN; i++) {
-            pingPong = !pingPong;
-            OceanComputeShader.SetInt("_N", _N);
-            OceanComputeShader.SetInt("Stage", i);
-            OceanComputeShader.SetBool("PingPong", pingPong);
-            OceanComputeShader.Dispatch(5, threadGroupsX, threadGroupsY, 1);
-        }
-
-        if (pingPong && outputToInput)
-        {
-            Graphics.Blit(bufferTexture, InputTexture);
-        }
-
-        if (!pingPong && !outputToInput)
-        {
-            Graphics.Blit(bufferTexture, InputTexture);
-        }
-
-        if (true)
-        {
-            OceanComputeShader.SetInt("_N", _N);
-            OceanComputeShader.SetTexture(6, "Spectrum", outputToInput ? InputTexture : bufferTexture);
-            OceanComputeShader.Dispatch(6, threadGroupsX, threadGroupsY, 1);
-        }
-    }
-
     void InverseFFT(RenderTexture spectrumTextures) {
         OceanComputeShader.SetTexture(4, "_FourierTarget", spectrumTextures);
         OceanComputeShader.Dispatch(4, 1, _N, 1);
@@ -152,7 +101,7 @@ public class OceanScript : MonoBehaviour
         CreatePlane();
         CreateMaterial();
 
-        int L = 256;
+        int L = 128;
 
         int logN = (int)Mathf.Log(_N, 2);
         threadGroupsX = Mathf.CeilToInt(_N / 8.0f);
@@ -161,40 +110,23 @@ public class OceanScript : MonoBehaviour
         OceanMaterial.SetInt("_L", L);
         OceanMaterial.SetInt("_N", _N);
 
-        // Create the initial spectrum  texture
-        initialSpectrum = CreateRenderTexture(_N, _N, RenderTextureFormat.ARGBHalf, true);
         // Tell the compute shaders to fill in our textures now so we can do stuff
         OceanComputeShader.SetInt("_N", _N);
         OceanComputeShader.SetInt("_L", L);
         OceanComputeShader.SetTexture(0, "InitialSpectrum", test);
         OceanComputeShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
-
-        // generate butterfly texture
-        OceanComputeShader.SetInt("_N", _N);
-        OceanComputeShader.SetTexture(3, "ButterflyTexture", butterfly);
-        OceanComputeShader.Dispatch(3, threadGroupsX, threadGroupsY, 1);
     }
 
     // Update is called once per frame
     void Update()
     {
         OceanComputeShader.SetFloat("_Time", Time.time);
-        //initialSpectrum.GenerateMips();
         
         OceanComputeShader.SetTexture(1, "InitialSpectrum", test);
         OceanComputeShader.SetTexture(1, "Spectrum", spectrum);
         OceanComputeShader.SetTexture(1, "Normals", slope);
         OceanComputeShader.Dispatch(1, threadGroupsX, threadGroupsY, 1);
 
-        /*
-        OceanComputeShader.SetTexture(2, "Spectrum", spectrum);
-        OceanComputeShader.SetTexture(2, "Displacement", displacement);
-        OceanComputeShader.SetTexture(2, "Normals", slope);
-        OceanComputeShader.Dispatch(2, threadGroupsX, threadGroupsY, 1);*/
-
-        // FFT time
-        //IFFT(spectrum, buffer, displacement, true);
-        //IFFT(slope, buffer, slope, true);
         InverseFFT(spectrum);
         InverseFFT(slope);
 
