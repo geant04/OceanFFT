@@ -1,0 +1,108 @@
+#pragma kernel CS_InitializeSpectrum	// 0
+#pragma kernel CS_GenerateSpectrum	    // 1
+#pragma kernel CS_SlowCompute			// 2
+
+#define PI 3.14159265358979323846
+
+RWTexture2D<float4> InitialSpectrum;
+RWTexture2D<float4> Spectrum;
+RWTexture2D<float4> Displacement;
+RWTexture2D<float4> Normals;
+
+RWTexture2D<float4> ButterflyTexture;
+RWTexture2D<float4> pingpong0;
+RWTexture2D<float4> pingpong1;
+RWTexture2D<float4> _FourierTarget;
+
+uint _N, _L;
+uint Stage;
+bool PingPong;
+float _Time;
+float _Choppiness;
+
+float2 GaussianNum(float2 u)
+{
+	float x = cos(2 * PI * u.x) * sqrt(-2.0 * log(u.x));
+	float y = cos(2 * PI * u.y) * sqrt(-2.0 * log(u.y));
+	
+	return float2(x, y);
+}
+
+float hash(float p)
+{
+	p = frac(p * .1031);
+	p *= p + 33.33;
+	p *= p + p;
+	return frac(p);
+}
+
+float2 euler(float ik)
+{
+	return float2(cos(ik), sin(ik));
+}
+
+float2 complexMult(float2 u, float2 v)
+{
+	// u = a + bi
+	// v = c  + di
+	return float2((u.x * v.x) - (u.y * v.y), (u.x * v.y) + (v.x * u.y));
+}
+
+
+[numthreads(8,8,1)]
+void CS_InitializeSpectrum (uint3 id : SV_DispatchThreadID)
+{
+	int kx = id.x;
+	int ky = id.y;
+	
+	float seed = hash(ky * _N + kx);
+	seed = hash(seed);
+	
+	float2 Gaussians = GaussianNum(float2(seed, hash(seed)));
+	
+	// initially id ranges from 0 to _N I believe
+	float halfN = _N / 2.0f;
+	float2 k = (id.xy - halfN) * 2.0f * PI / _L;
+	
+	float kLength = length(k);
+	
+	if (kLength < 0.00001)
+	{
+		InitialSpectrum[id.xy] = 0.0f;
+		return;
+	}
+	
+	float kLength2 = kLength * kLength;
+	float kLength4 = kLength2 * kLength2;
+	
+	float2 w = float2(1.0, 1.0);
+	
+	float L = 1000;
+	float L2 = L * L;
+	
+	float damping = 0.001;
+	float l2 = L2 * damping * damping;
+	
+	float cosineFactor = dot(normalize(k), normalize(w));
+	cosineFactor = pow(cosineFactor, 2.0);
+	
+	float A = 4.0;
+	float phillips = A * exp(-1.0 / (kLength2 * L2)) / kLength4 * cosineFactor;
+	
+	float2 iv = normalize(float2(Gaussians.x, Gaussians.y)) * sqrt(phillips / 2.0);
+	
+	InitialSpectrum[id.xy] = float4(iv.x, iv.y, 0.0, 0.0);
+}
+
+
+[numthreads(8, 8, 1)]
+void CS_GenerateSpectrum(uint3 id : SV_DispatchThreadID)
+{
+	
+}
+
+[numthreads(8, 8, 1)]
+void CS_SlowCompute(uint3 id : SV_DispatchThreadID)
+{
+	
+}
