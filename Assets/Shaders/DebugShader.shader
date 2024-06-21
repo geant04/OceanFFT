@@ -46,8 +46,8 @@ Shader "Custom/DebugShader"
         float4 fp(v2f i) : SV_TARGET{
             float2 uv = i.uv;
             float4 data = tex2D(_DisplacementTexture, uv);
-
-            return data;
+            
+            return float4(data.r * 100000, data.g, data.b, data.a);
         }
 
         ENDCG

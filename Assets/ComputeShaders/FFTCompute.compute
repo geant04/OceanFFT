@@ -1,25 +1,37 @@
 #pragma kernel CS_InitializeSpectrum	// 0
 #pragma kernel CS_GenerateSpectrum	    // 1
-#pragma kernel CS_SlowCompute			// 2
+#pragma kernel CS_GenerateButterfly		// 2
+#pragma kernel CS_ButterflyPass			// 3
+#pragma kernel CS_InvertPermute			// 4
 
 #define PI 3.14159265358979323846
+#define M_PI 3.1415926535897932384626433832795
 
+// TextureBuffers
 RWTexture2D<float4> InitialSpectrum;
 RWTexture2D<float4> Spectrum;
 RWTexture2D<float4> Displacement;
 RWTexture2D<float4> Normals;
 
 RWTexture2D<float4> ButterflyTexture;
-RWTexture2D<float4> pingpong0;
-RWTexture2D<float4> pingpong1;
+RWTexture2D<float4> PingPong0;
+RWTexture2D<float4> PingPong1;
 RWTexture2D<float4> _FourierTarget;
 
-uint _N, _L;
-uint Stage;
-bool PingPong;
+// Global Params
+uint _N;
+
+// Phillips Spectrum Parameters
+uint _HorizontalPatch;
+
+// IFFT
+uint _Stage;
+bool _PingPong;
+bool _Direction;
 float _Time;
 float _Choppiness;
 
+// Sample from a Gaussian Distribution of mean = 0, std = 1
 float2 GaussianNum(float2 u)
 {
 	float x = cos(2 * PI * u.x) * sqrt(-2.0 * log(u.x));
@@ -28,6 +40,7 @@ float2 GaussianNum(float2 u)
 	return float2(x, y);
 }
 
+// Random number generator given seed
 float hash(float p)
 {
 	p = frac(p * .1031);
@@ -36,6 +49,7 @@ float hash(float p)
 	return frac(p);
 }
 
+// Euler
 float2 euler(float ik)
 {
 	return float2(cos(ik), sin(ik));
@@ -45,64 +59,194 @@ float2 complexMult(float2 u, float2 v)
 {
 	// u = a + bi
 	// v = c  + di
-	return float2((u.x * v.x) - (u.y * v.y), (u.x * v.y) + (v.x * u.y));
+	return float2((u.x * v.x) - (u.y * v.y), (u.x * v.y) + (u.y * v.x));
+}
+
+float2 GatherWaveNumber(float2 id)
+{
+	float2 nm = id.xy;
+	nm -= ((float) _N / 2.0f); // Warp [0, N) to [-N/2, N/2) space
+	
+	// HorizontalPatch != L?????
+	return (2.0f * PI / (float) _HorizontalPatch) * nm;
+}
+
+// Returns "wave energy density" -- function of frequency
+// This value assists in determining the amplitude and phase of waves in the frequency domain
+float2 PhillipsSpectrum(float2 k)
+{
+	float WindSpeed = 4.0;
+	float2 WindDirection = float2(1, 1);
+	
+	// A represents intensity
+	float A = 4.0;
+	float waveNumber = length(k);
+	waveNumber = waveNumber < 0.00001 ? 0.00001 : waveNumber;
+	
+	float kSq = pow(waveNumber, 2.0);
+	float kQuad = pow(kSq, 2.0);
+	float damping = pow(WindSpeed, 2.0) / 9.81;
+	
+	// Appendix A
+	float h0k = clamp(sqrt(A / kQuad)
+	* pow(dot(normalize(k), normalize(WindDirection)), 2.0)
+	* exp(-1 / (kSq * pow(damping, 2.0)))
+	* exp(-kSq * pow(_HorizontalPatch / 2000.0, 2.0)) / sqrt(2.0), -4000.0, 4000);
+
+	float h0minusk = clamp(sqrt(A / kQuad)
+	* pow(dot(normalize(-k), normalize(WindDirection)), 2.0)
+	* exp(-1 / (kSq * pow(damping, 2.0)))
+	* exp(-kSq * pow(_HorizontalPatch / 2000.0, 2.0)) / sqrt(2.0), -4000.0, 4000);
+	
+	return float2(h0k, h0minusk);
 }
 
 
 [numthreads(8,8,1)]
 void CS_InitializeSpectrum (uint3 id : SV_DispatchThreadID)
-{
-	int kx = id.x;
-	int ky = id.y;
+{	
+	float2 k = GatherWaveNumber(id.xy);
+	float2 Phillips = PhillipsSpectrum(k);
 	
-	float seed = hash(ky * _N + kx);
+	// In theory, we gain a random amplitude and phase, which is 
+	// multiplpied by the energy density determined by the Phillips spectrum.
+	// By Central Limit Theorem, we should statistically get an approximation
+	// of an actual ocean with more samples by using a Gaussian distribution.
+	float seed = hash(id.y * _N + id.x);
 	seed = hash(seed);
-	
 	float2 Gaussians = GaussianNum(float2(seed, hash(seed)));
+	float2 Gaussians2 = GaussianNum(float2(hash(seed), seed));
 	
-	// initially id ranges from 0 to _N I believe
-	float halfN = _N / 2.0f;
-	float2 k = (id.xy - halfN) * 2.0f * PI / _L;
+	float2 h0k = Gaussians * Phillips.r;
+	float2 h0minusk = Gaussians2 * Phillips.r;
 	
-	float kLength = length(k);
-	
-	if (kLength < 0.00001)
-	{
-		InitialSpectrum[id.xy] = 0.0f;
-		return;
-	}
-	
-	float kLength2 = kLength * kLength;
-	float kLength4 = kLength2 * kLength2;
-	
-	float2 w = float2(1.0, 1.0);
-	
-	float L = 1000;
-	float L2 = L * L;
-	
-	float damping = 0.001;
-	float l2 = L2 * damping * damping;
-	
-	float cosineFactor = dot(normalize(k), normalize(w));
-	cosineFactor = pow(cosineFactor, 2.0);
-	
-	float A = 4.0;
-	float phillips = A * exp(-1.0 / (kLength2 * L2)) / kLength4 * cosineFactor;
-	
-	float2 iv = normalize(float2(Gaussians.x, Gaussians.y)) * sqrt(phillips / 2.0);
-	
-	InitialSpectrum[id.xy] = float4(iv.x, iv.y, 0.0, 0.0);
+	InitialSpectrum[id.xy] = float4(h0k, h0minusk);
 }
 
 
 [numthreads(8, 8, 1)]
 void CS_GenerateSpectrum(uint3 id : SV_DispatchThreadID)
 {
+	// h_tilde = (h_0(k) * exp(i * omega(k)*t), h_0(-k) * exp(-i * omega(k) * t))
+	float2 k = GatherWaveNumber(id.xy);
+	float DispertionRelation = sqrt(length(k) * 9.81);
 	
+	// Keep in mind id.xy is within the [0, N) space -- id.xy = k + (N/2.0)
+	// We index like this for consistency -- we should be sampling h_0(k) instead.
+	float2 InitialReal = InitialSpectrum[id.xy].rg;
+	float2 InitialConjugate = InitialSpectrum[id.xy].ba;
+	InitialConjugate.y *= -1; // Conjugate
+	
+	float2 exp = euler(DispertionRelation * _Time);
+	
+	float2 realComp = complexMult(InitialReal, exp);
+	float2 complexComp = complexMult(InitialConjugate, float2(exp.x, -exp.y));
+	
+	// Refer to the Tessendorf paper for the equation.
+	// Let's do an experiment: see if writing to the other two channels left works.
+	Spectrum[id.xy] = float4(realComp + complexComp, 0, 1.0);
+	
+	// TO DO: Choppy waves, realComp + complexComp = dy, store (dx,dz) next
+	// https://tore.tuhh.de/entities/publication/1cd390d3-732b-41c1-aa2b-07b71a64edd2 provides very helpful code in their Appendices.
 }
 
 [numthreads(8, 8, 1)]
-void CS_SlowCompute(uint3 id : SV_DispatchThreadID)
+void CS_GenerateButterfly(uint3 id : SV_DispatchThreadID)
+{
+	float2 twiddleFactor;
+	uint2 indx;
+	
+	uint pow2toX = pow(2, id.x);
+	uint pow2Xplus = 2 * pow2toX;
+	
+	// Calculate exponent in twiddle
+	// k = (n * N / 2^stage)
+	float k = (id.y * (float) _N) / (float) pow2Xplus;
+	k = fmod(k, (float) _N); // Ensure k is in range
+	
+	// Twiddle factor: W_N = exp(i * 2pi / N)
+	// Using Euler's formula: e^(ix) = cos(x) + i*sin(x)
+	twiddleFactor = euler(2.0f * M_PI * k / (float) _N);
+	
+	// Prepare indices based on top or bottom of wing.
+	bool wing = (id.y % pow2Xplus) < (pow2toX);
+	int butterflySpan = (id.x == 0) ? 1 : (pow2toX);
+	
+	indx.x = id.y - (!wing * butterflySpan);
+	indx.y = id.y + (wing * butterflySpan);
+		
+	// First stage indicse only, following stages are butterfly operation outputs
+	if (id.x == 0)
+	{
+		// https://stackoverflow.com/questions/28933526/how-does-the-reversebits-function-of-hlsl-sm5-work????
+		indx.x = reversebits(indx.x << 23);
+		indx.y = reversebits(indx.y << 23);
+	}
+		
+	ButterflyTexture[id.xy] = float4(twiddleFactor.x, twiddleFactor.y, indx.x, indx.y);
+}
+
+[numthreads(16, 16, 1)]
+void CS_ButterflyPass(uint3 id : SV_DispatchThreadID)
 {
 	
+	float4 data = ButterflyTexture[int2(_Stage, id.x)];
+	float2 a;
+	float2 b;
+	float2 w = data.rg;
+	
+	int2 aIndices = int2(data.z, id.y);
+	int2 bIndices = int2(data.w, id.y);
+	
+	// 0 is horizontal, 1 is vertical
+	if (_Direction)
+	{
+		aIndices = int2(id.x, data.z);
+		bIndices = int2(id.x, data.w);
+	}
+		
+	if (!_PingPong)
+	{
+		a = PingPong0[aIndices].rg;
+		b = PingPong0[bIndices].rg;
+		
+		// output: a + w * b;
+		float2 wb = complexMult(w, b);
+		float2 H = a + wb;
+
+		PingPong1[id.xy] = float4(H, 0, 1);
+	}
+	else
+	{
+		a = PingPong1[aIndices].rg;
+		b = PingPong1[bIndices].rg;
+		
+		float2 wb = complexMult(w, b);
+		float2 H = a + wb;
+		
+		PingPong0[id.xy] = float4(H, 0, 1);
+	}
+}
+
+[numthreads(16, 16, 1)]
+void CS_InvertPermute(uint3 id : SV_DispatchThreadID)
+{
+	float2 perms = float2(-1, 1);
+	int index = (id.x + id.y) % 2;
+	float perm = perms[index];
+	float4 output;
+	float h;
+	
+	if (!_PingPong)
+	{
+		h = PingPong0[id.xy].r;
+	}
+	else
+	{
+		h = PingPong1[id.xy].r;
+	}
+	
+	float pVal = perm * (h / (float) (_N * _N));
+	output = float4(pVal, pVal, pVal, 1);
+	Displacement[id.xy] = output;
 }

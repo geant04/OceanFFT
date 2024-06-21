@@ -223,6 +223,8 @@ MonoBehaviour:
   OceanShader: {fileID: 4800000, guid: ac5f381ac493f3a4c847a58b320ba68d, type: 3}
   size: {x: 30, y: 30}
   planeResolution: 64
+  N: 256
+  L: 64
   FFTBuffer: {fileID: 8400000, guid: 4a35356d6400d68499d5e5d181844763, type: 2}
 --- !u!1 &705507993
 GameObject:
@@ -253,7 +255,7 @@ Light:
   m_Type: 1
   m_Shape: 0
   m_Color: {r: 1, g: 0.95686275, b: 0.8392157, a: 1}
-  m_Intensity: 25
+  m_Intensity: 1
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208
