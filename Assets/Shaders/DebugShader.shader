@@ -34,9 +34,15 @@ Shader "Custom/DebugShader"
         v2f vp(VertexData v) {
             v2f i;
 
-            float3 worldPos = mul(unity_ObjectToWorld, v.vertex);
+            float3 localVertex = v.vertex.xyz;
+            float heightData = tex2Dlod(_DisplacementTexture, float4(v.uv, 0, 0)).r;
+            localVertex.y += heightData;
+            localVertex.y *= 100;
+            localVertex.y -= 7;
 
-            i.vertex = UnityObjectToClipPos(v.vertex.xyz);
+            float3 worldPos = mul(unity_ObjectToWorld, localVertex);
+
+            i.vertex = UnityObjectToClipPos(localVertex);
             i.uv = v.uv;
             i.viewDir = WorldSpaceViewDir(v.vertex);
 
@@ -45,12 +51,12 @@ Shader "Custom/DebugShader"
 
         float4 fp(v2f i) : SV_TARGET{
             float2 uv = i.uv;
-            float4 data = tex2D(_DisplacementTexture, uv);
+            float4 data = tex2D(_DisplacementTexture, uv) * 24 - 1.25;
             float testValue = data.a / 256;
 
             //return float4(testValue, 0, 0, 1);
             //return float4(data);
-            return float4(data.r * 1000, data.g, data.b, data.a);
+            return float4(data.r * 1, data.g, data.b, data.a);
         }
 
         ENDCG

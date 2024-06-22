@@ -24,9 +24,8 @@ public class OceanScript : MonoBehaviour
                           normalMap,
                           initialSpectrum,
                           spectrumTexture,
+                          FFTBuffer,
                           butterfly;
-
-    public RenderTexture FFTBuffer;
     
     // Misc.
     Vector3[] vertices;
@@ -114,12 +113,16 @@ public class OceanScript : MonoBehaviour
 
         // Create the initial spectrum  texture -- should this require mips? Experiment with this
         initialSpectrum = CreateRenderTexture(N, N, RenderTextureFormat.ARGBFloat, true);
+        initialSpectrum.filterMode = FilterMode.Point;
 
         // Generate initial Phillips spectrum
+        int initialKernel = OceanComputeShader.FindKernel("CS_InitializeSpectrum");
+        int initialThreadGroups = Mathf.CeilToInt(N / 8.0f);
+
         OceanComputeShader.SetInt("_N", N);
         OceanComputeShader.SetInt("_HorizontalPatch", L);
-        OceanComputeShader.SetTexture(0, "InitialSpectrum", initialSpectrum);
-        OceanComputeShader.Dispatch(0, threadGroupsX, threadGroupsY, 1);
+        OceanComputeShader.SetTexture(initialKernel, "InitialSpectrum", initialSpectrum);
+        OceanComputeShader.Dispatch(initialKernel, initialThreadGroups, initialThreadGroups, 1);
 
         // Create the spectrum texture
         spectrumTexture = CreateRenderTexture(N, N, RenderTextureFormat.ARGBFloat, false);
@@ -132,9 +135,7 @@ public class OceanScript : MonoBehaviour
 
         // Create buffer texture
         FFTBuffer = CreateRenderTexture(N, N, RenderTextureFormat.ARGBFloat, false);
-
-        // Create Butterfly texture
-        GenerateButterfly();
+        //FFTBuffer.filterMode = FilterMode.Point;
     }
 
     int[] GenerateBitReversedIndices(int n)
@@ -160,31 +161,8 @@ public class OceanScript : MonoBehaviour
         return reversedN;
     }
 
-    void GenerateButterfly()
-    {
-        int logN = (int)Mathf.Log(N, 2);
-        int[] bitReversedIndices = GenerateBitReversedIndices(N);
-        ComputeBuffer bitReversedBuffer = new ComputeBuffer(N, sizeof(int));
-        bitReversedBuffer.SetData(bitReversedIndices);
-
-        Debug.Log(logN);
-        butterfly = CreateRenderTexture(logN, N, RenderTextureFormat.ARGBFloat, false);
-        butterfly.filterMode = FilterMode.Point;
-
-        OceanComputeShader.SetBuffer(OceanComputeShader.FindKernel("CS_GenerateButterfly"), "bit_reversed", bitReversedBuffer);
-        OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_GenerateButterfly"), "ButterflyTexture", butterfly);
-        OceanComputeShader.Dispatch(OceanComputeShader.FindKernel("CS_GenerateButterfly"), logN, N, 1);
-
-        bitReversedBuffer.Release();
-    }
-
     void ButterflyPass(bool PingPong)
     {
-        if (butterfly == null)
-        {
-            GenerateButterfly();
-        }
-
         OceanComputeShader.SetBool("_PingPong", PingPong);
         OceanComputeShader.Dispatch(OceanComputeShader.FindKernel("CS_ButterflyPass"), threadGroupsX, threadGroupsY, 1);
     }
@@ -219,14 +197,13 @@ public class OceanScript : MonoBehaviour
         threadGroupsX = Mathf.CeilToInt(N / 16.0f);
         threadGroupsY = threadGroupsX;
 
-        OceanComputeShader.SetTexture(kernelID, "ButterflyTexture", butterfly);
         OceanComputeShader.SetTexture(kernelID, "PingPong0", PingPong0);
         OceanComputeShader.SetTexture(kernelID, "PingPong1", PingPong1);
 
         // Horizontal IFFT Pass
-        OceanComputeShader.SetBool("_Direction", false);
+        OceanComputeShader.SetInt("_Direction", 0);
 
-        for (int i = 1; i < N; i<<=1)
+        for (int i = 1; i < N; i <<=1)
         {
             OceanComputeShader.SetInt("_Stage", i);
             ButterflyPass(PingPong);
@@ -234,9 +211,9 @@ public class OceanScript : MonoBehaviour
         }
 
         // Vertical IFFT Pass
-        OceanComputeShader.SetBool("_Direction", true);
+        OceanComputeShader.SetInt("_Direction", 1);
 
-        for (int j = 1; j < 32; j<<=1)
+        for (int j = 1; j < N; j <<= 1)
         {
             OceanComputeShader.SetInt("_Stage", j);
             ButterflyPass(PingPong);
@@ -252,15 +229,18 @@ public class OceanScript : MonoBehaviour
         if ((N != prevN) || (L != prevL))
         {
             InitializeSimulation();
+
+            //IFFT(initialSpectrum, FFTBuffer);
         }
 
         OceanComputeShader.SetFloat("_Time", Time.time);
 
         GenerateSpectrum();
-        
+
         IFFT(spectrumTexture, FFTBuffer);
         //IFFT(true, FFTBuffer, spectrumTexture);
 
+        heightMap.GenerateMips();
         OceanMaterial.SetTexture("_DisplacementTexture", heightMap);
     }
 }
