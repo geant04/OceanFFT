@@ -18,6 +18,8 @@ RWTexture2D<float4> PingPong0;
 RWTexture2D<float4> PingPong1;
 RWTexture2D<float4> _FourierTarget;
 
+StructuredBuffer<int> bit_reversed;
+
 // Global Params
 uint _N;
 
@@ -59,7 +61,7 @@ float2 complexMult(float2 u, float2 v)
 {
 	// u = a + bi
 	// v = c  + di
-	return float2((u.x * v.x) - (u.y * v.y), (u.x * v.y) + (u.y * v.x));
+	return float2((u.x * v.x) - (u.y * v.y), (u.y * v.x) + (u.x * v.y));
 }
 
 float2 GatherWaveNumber(float2 id)
@@ -150,9 +152,30 @@ void CS_GenerateSpectrum(uint3 id : SV_DispatchThreadID)
 	// https://tore.tuhh.de/entities/publication/1cd390d3-732b-41c1-aa2b-07b71a64edd2 provides very helpful code in their Appendices.
 }
 
+void ButterflyValues(uint step, uint index, out uint2 indices, out float2 twiddle)
+{
+	bool Inverse = true;
+	const float twoPi = 6.28318530718;
+	uint b = _N >> (step + 1);
+	uint w = b * (index / b);
+	uint i = (w + index) % _N;
+	sincos(-twoPi / _N * w, twiddle.y, twiddle.x);
+	if (Inverse)
+		twiddle.y = -twiddle.y;
+	indices = uint2(i, i + b);
+}
+
 [numthreads(8, 8, 1)]
 void CS_GenerateButterfly(uint3 id : SV_DispatchThreadID)
 {
+	uint width = (int) log2((float) _N);
+	uint height = _N;
+	
+	if (id.x >= width || id.y >= height)
+	{
+		return;
+	}
+	
 	float2 twiddleFactor;
 	uint2 indx;
 	
@@ -160,17 +183,21 @@ void CS_GenerateButterfly(uint3 id : SV_DispatchThreadID)
 	uint pow2Xplus = 2 * pow2toX;
 	
 	// Calculate exponent in twiddle
-	// k = (n * N / 2^stage)
-	float k = (id.y * (float) _N) / (float) pow2Xplus;
-	k = fmod(k, (float) _N); // Ensure k is in range
+	float k = id.y * ((float) _N / pow(2, (float) id.x + 1));
+	float phase = 2.0f * k * M_PI / _N;
+	//k = fmod(k, (float) _N); // Ensure k is in range
 	
 	// Twiddle factor: W_N = exp(i * 2pi / N)
 	// Using Euler's formula: e^(ix) = cos(x) + i*sin(x)
-	twiddleFactor = euler(2.0f * M_PI * k / (float) _N);
+	twiddleFactor = euler(phase);
 	
 	// Prepare indices based on top or bottom of wing.
 	bool wing = (id.y % pow2Xplus) < (pow2toX);
 	int butterflySpan = (id.x == 0) ? 1 : (pow2toX);
+	
+	//
+	butterflySpan = (int) pow(2, id.x);
+	bool butterflyWing = (id.y % (uint) pow(2.0, id.x + 1)) < (uint) pow(2, id.x);
 	
 	indx.x = id.y - (!wing * butterflySpan);
 	indx.y = id.y + (wing * butterflySpan);
@@ -178,53 +205,91 @@ void CS_GenerateButterfly(uint3 id : SV_DispatchThreadID)
 	// First stage indicse only, following stages are butterfly operation outputs
 	if (id.x == 0)
 	{
-		// https://stackoverflow.com/questions/28933526/how-does-the-reversebits-function-of-hlsl-sm5-work????
-		indx.x = reversebits(indx.x << 23);
-		indx.y = reversebits(indx.y << 23);
+		// https://stackoverflow.com/questions/28933526/how-does-the-reversebits-function-of-hlsl-sm5-work
+		// HLSL reversebits is neat, but it's not quite working
+		indx.x = reversebits(indx.x << 24);
+		indx.y = reversebits(indx.y << 24);
 	}
-		
+	
+	//ButterflyTexture[id.xy] = float4(twiddleFactor, indices);
 	ButterflyTexture[id.xy] = float4(twiddleFactor.x, twiddleFactor.y, indx.x, indx.y);
 }
-
 [numthreads(16, 16, 1)]
-void CS_ButterflyPass(uint3 id : SV_DispatchThreadID)
+void CS_ButterflyPass(uint3 id : SV_DispatchThreadID, uint3 groupId : SV_GroupID)
 {
+	int2 pCoord = int2(id.x, groupId.y);
 	
-	float4 data = ButterflyTexture[int2(_Stage, id.x)];
+	float4 data; //= ButterflyTexture[int2(_Stage, id.x)];
 	float2 a;
 	float2 b;
-	float2 w = data.rg;
+	float2 w;
 	
-	int2 aIndices = int2(data.z, id.y);
-	int2 bIndices = int2(data.w, id.y);
+	int2 aIndices; //= int2(data.z, id.y);
+	int2 bIndices; //= int2(data.w, id.y);
+	
+	int threadCount = _N / 2;
+	int threadID = _Direction ? id.y : id.x;
+	
+	// Index calculations??? https://github.com/achalpandeyy/OceanFFT/blob/master/Source/Shaders/CS_FFTHorizontal.comp
+	int inIdx = threadID & (_Stage - 1); // stuff for calculating theta
+	int outIdx = ((threadID - inIdx) << 1) + inIdx;
+	
+	float theta = -M_PI * (float(inIdx) / (float) _Stage);
+	
+	// Assign twiddle
+	w = euler(theta);
 	
 	// 0 is horizontal, 1 is vertical
-	if (_Direction)
-	{
-		aIndices = int2(id.x, data.z);
-		bIndices = int2(id.x, data.w);
-	}
+	//if (_Direction)
+	//{
+		//data = ButterflyTexture[int2(_Stage, id.y)];
+		//w = data.rg;
+		//aIndices = int2(id.x, data.z);
+		//bIndices = int2(id.x, data.w);
+	//}
 		
+	// initially: spectrum texture 0, tempTexture 1
+	
+	aIndices = id.xy;
+	int2 bIndices0 = int2(id.x + threadCount, id.x);
+	int2 bIndices1 = int2(id.y, id.y + threadCount);
+	
+	int2 outIdxWStage = int2(outIdx, outIdx + _Stage);
+	int2 outIndices0 = int2(id.x, id.x);
+	int2 outIndices1 = int2(id.y, id.y);
+	
+	int2 ppX = _Direction ? outIndices0 : outIdxWStage;
+	int2 ppY = _Direction ? outIdxWStage : outIndices1;
+	
 	if (!_PingPong)
 	{
-		a = PingPong0[aIndices].rg;
-		b = PingPong0[bIndices].rg;
+		float4 a = PingPong0[id.xy];
+		float4 b = PingPong0[int2(bIndices0[_Direction], bIndices1[_Direction])];
 		
 		// output: a + w * b;
-		float2 wb = complexMult(w, b);
-		float2 H = a + wb;
+		float2 wb = complexMult(w, b.rg);
+		float4 result0 = float4(a.rg + wb, a.rg - wb);
+		
+		wb = complexMult(w, b.ba);
+		float4 result1 = float4(a.ba + wb, a.ba - wb);
 
-		PingPong1[id.xy] = float4(H, 0, 1);
+		PingPong1[int2(ppX[0], ppY[0])] = float4(result0.xy, 0, 1); //float4(1, 0, 0, 0);
+		PingPong1[int2(ppX[1], ppY[1])] = float4(result0.zw, 0, 1); // float4(0, 1, 0, 0);
 	}
 	else
 	{
-		a = PingPong1[aIndices].rg;
-		b = PingPong1[bIndices].rg;
+		float4 a = PingPong1[aIndices];
+		float4 b = PingPong1[int2(bIndices0[_Direction], bIndices1[_Direction])];
 		
-		float2 wb = complexMult(w, b);
-		float2 H = a + wb;
+		// output: a + w * b;
+		float2 wb = complexMult(w, b.rg);
+		float4 result0 = float4(a.rg + wb, a.rg - wb);
 		
-		PingPong0[id.xy] = float4(H, 0, 1);
+		wb = complexMult(w, b.ba);
+		float4 result1 = float4(a.ba + wb, a.ba - wb);
+
+		PingPong0[int2(ppX[0], ppY[0])] = float4(result0.xy, 0, 1);
+		PingPong0[int2(ppX[1], ppY[1])] = float4(result0.zw, 0, 1);
 	}
 }
 

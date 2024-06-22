@@ -137,17 +137,45 @@ public class OceanScript : MonoBehaviour
         GenerateButterfly();
     }
 
+    int[] GenerateBitReversedIndices(int n)
+    {
+        int[] bitReversed = new int[n];
+        int logN = (int)Mathf.Log(N, 2);
+        for (int i = 0; i < logN; i++)
+        {
+            bitReversed[i] = ReverseBits(i, logN);
+        }
+
+        return bitReversed;
+    }
+
+    int ReverseBits(int n, int bitSize)
+    {
+        int reversedN = 0;
+        for (int i = 0; i < bitSize; ++i)
+        {
+            reversedN = (reversedN << 1) | (n & 1);
+            n >>= 1;
+        }
+        return reversedN;
+    }
+
     void GenerateButterfly()
     {
         int logN = (int)Mathf.Log(N, 2);
+        int[] bitReversedIndices = GenerateBitReversedIndices(N);
+        ComputeBuffer bitReversedBuffer = new ComputeBuffer(N, sizeof(int));
+        bitReversedBuffer.SetData(bitReversedIndices);
 
         Debug.Log(logN);
-
         butterfly = CreateRenderTexture(logN, N, RenderTextureFormat.ARGBFloat, false);
         butterfly.filterMode = FilterMode.Point;
 
+        OceanComputeShader.SetBuffer(OceanComputeShader.FindKernel("CS_GenerateButterfly"), "bit_reversed", bitReversedBuffer);
         OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_GenerateButterfly"), "ButterflyTexture", butterfly);
-        OceanComputeShader.Dispatch(OceanComputeShader.FindKernel("CS_GenerateButterfly"), threadGroupsX, threadGroupsY, 1);
+        OceanComputeShader.Dispatch(OceanComputeShader.FindKernel("CS_GenerateButterfly"), logN, N, 1);
+
+        bitReversedBuffer.Release();
     }
 
     void ButterflyPass(bool PingPong)
@@ -198,23 +226,22 @@ public class OceanScript : MonoBehaviour
         // Horizontal IFFT Pass
         OceanComputeShader.SetBool("_Direction", false);
 
-        for (int i = 0; i < logN; i++)
+        for (int i = 1; i < N; i<<=1)
         {
             OceanComputeShader.SetInt("_Stage", i);
             ButterflyPass(PingPong);
             PingPong = !PingPong;
         }
 
-        /*
         // Vertical IFFT Pass
         OceanComputeShader.SetBool("_Direction", true);
 
-        for (int i = 0; i < logN; i++)
+        for (int j = 1; j < 32; j<<=1)
         {
-            OceanComputeShader.SetInt("_Stage", i);
+            OceanComputeShader.SetInt("_Stage", j);
             ButterflyPass(PingPong);
             PingPong = !PingPong;
-        }*/
+        }
 
         InversionPermutePass(PingPong, PingPong0, PingPong1);
     }
