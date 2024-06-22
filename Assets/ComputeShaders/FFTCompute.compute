@@ -25,6 +25,8 @@ uint _N;
 
 // Phillips Spectrum Parameters
 uint _HorizontalPatch;
+float _Intensity;
+float _WindSpeed;
 
 // IFFT
 uint _Stage;
@@ -77,11 +79,11 @@ float2 GatherWaveNumber(float2 id)
 // This value assists in determining the amplitude and phase of waves in the frequency domain
 float2 PhillipsSpectrum(float2 k)
 {
-	float WindSpeed = 4.0;
+	float WindSpeed = _WindSpeed;
 	float2 WindDirection = float2(1, 1);
 	
 	// A represents intensity
-	float A = 4.0;
+	float A = _Intensity;
 	float waveNumber = length(k);
 	waveNumber = waveNumber < 0.00001 ? 0.00001 : waveNumber;
 	

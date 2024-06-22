@@ -224,7 +224,10 @@ MonoBehaviour:
   size: {x: 30, y: 30}
   planeResolution: 64
   N: 256
-  L: 256
+  L: 64
+  intensity: 4
+  windSpeed: 100
+  windDirection: {x: 0, y: 0}
 --- !u!1 &705507993
 GameObject:
   m_ObjectHideFlags: 0

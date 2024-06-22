@@ -18,6 +18,9 @@ public class OceanScript : MonoBehaviour
     [SerializeField] int planeResolution = 1;
     [SerializeField] int N = 32;
     [SerializeField] int L = 64;
+    [SerializeField] float intensity;
+    [SerializeField] float windSpeed;
+    [SerializeField] Vector2 windDirection;
     
     // RenderTextures
     private RenderTexture heightMap,
@@ -31,7 +34,10 @@ public class OceanScript : MonoBehaviour
     Vector3[] vertices;
     private int prevN;
     private int prevL;
+    private float prevIntensity;
+    private float prevWindSpeed;
 
+    // Builds nxm sized grid with i resolution
     void CreatePlane()
     {
         this.GetComponent<MeshFilter>().mesh = mesh = new Mesh();
@@ -86,6 +92,7 @@ public class OceanScript : MonoBehaviour
         GetComponent<MeshRenderer>().material = OceanMaterial;
     }
 
+    // Creates a RenderTexture for use in our compute shaders, later passed into surface shader
     RenderTexture CreateRenderTexture(int width, int height, RenderTextureFormat format, bool useMips)
     {
         RenderTexture rt = new RenderTexture(width, height, 0, format, RenderTextureReadWrite.Linear);
@@ -101,15 +108,25 @@ public class OceanScript : MonoBehaviour
 
     void InitializeSimulation()
     {
+        // Set previous values for updates; will check for these when we change something
         prevN = N;
         prevL = L;
+        prevIntensity = intensity;
+        prevWindSpeed = windSpeed;
 
+        // Build geometry + material
         CreatePlane();
         CreateMaterial();
 
-        int logN = (int)Mathf.Log(N, 2);
+        // Defines # of threadGroups, (8, 8, 1)
         threadGroupsX = Mathf.CeilToInt(N / 8.0f);
         threadGroupsY = threadGroupsX;
+
+        // Set uniforms
+        OceanComputeShader.SetInt("_N", N);
+        OceanComputeShader.SetInt("_HorizontalPatch", L);
+        OceanComputeShader.SetFloat("_Intensity", intensity);
+        OceanComputeShader.SetFloat("_WindSpeed", windSpeed);
 
         // Create the initial spectrum  texture -- should this require mips? Experiment with this
         initialSpectrum = CreateRenderTexture(N, N, RenderTextureFormat.ARGBFloat, true);
@@ -118,9 +135,6 @@ public class OceanScript : MonoBehaviour
         // Generate initial Phillips spectrum
         int initialKernel = OceanComputeShader.FindKernel("CS_InitializeSpectrum");
         int initialThreadGroups = Mathf.CeilToInt(N / 8.0f);
-
-        OceanComputeShader.SetInt("_N", N);
-        OceanComputeShader.SetInt("_HorizontalPatch", L);
         OceanComputeShader.SetTexture(initialKernel, "InitialSpectrum", initialSpectrum);
         OceanComputeShader.Dispatch(initialKernel, initialThreadGroups, initialThreadGroups, 1);
 
@@ -135,38 +149,16 @@ public class OceanScript : MonoBehaviour
 
         // Create buffer texture
         FFTBuffer = CreateRenderTexture(N, N, RenderTextureFormat.ARGBFloat, false);
-        //FFTBuffer.filterMode = FilterMode.Point;
     }
 
-    int[] GenerateBitReversedIndices(int n)
-    {
-        int[] bitReversed = new int[n];
-        int logN = (int)Mathf.Log(N, 2);
-        for (int i = 0; i < logN; i++)
-        {
-            bitReversed[i] = ReverseBits(i, logN);
-        }
-
-        return bitReversed;
-    }
-
-    int ReverseBits(int n, int bitSize)
-    {
-        int reversedN = 0;
-        for (int i = 0; i < bitSize; ++i)
-        {
-            reversedN = (reversedN << 1) | (n & 1);
-            n >>= 1;
-        }
-        return reversedN;
-    }
-
-    void ButterflyPass(bool PingPong)
+    // Depending on the direction and ping pong provided in IFFT for loop, runs an IFFT 1-D pass
+    void ButterflyPass(bool PingPong) // TODO: For better practice, specify direction of pass (horizontal/vertical)
     {
         OceanComputeShader.SetBool("_PingPong", PingPong);
         OceanComputeShader.Dispatch(OceanComputeShader.FindKernel("CS_ButterflyPass"), threadGroupsX, threadGroupsY, 1);
     }
 
+    // Generates h(k) values which is used as an input texture in our IFFT passes
     void GenerateSpectrum()
     {
         threadGroupsX = Mathf.CeilToInt(N / 8.0f);
@@ -178,6 +170,7 @@ public class OceanScript : MonoBehaviour
         OceanComputeShader.Dispatch(OceanComputeShader.FindKernel("CS_GenerateSpectrum"), threadGroupsX, threadGroupsY, 1);
     }
 
+    // Inverts amplitudes by (n,m) s.t (-1)^n * (-1)^m, additionally divides by N^2
     void InversionPermutePass(bool PingPong, RenderTexture PingPong0, RenderTexture PingPong1)
     {
         OceanComputeShader.SetBool("_PingPong", PingPong);
@@ -188,10 +181,10 @@ public class OceanScript : MonoBehaviour
         OceanComputeShader.Dispatch(OceanComputeShader.FindKernel("CS_InvertPermute"), threadGroupsX, threadGroupsY, 1);
     }
 
+    // The bulk of our simulation, performs Radix-2 Cooley Tukey IFFT algorithm on GPU via compute shaders
     void IFFT(RenderTexture PingPong0, RenderTexture PingPong1)
     {
         bool PingPong = false;
-        int logN = (int)Mathf.Log(N, 2);
         int kernelID = OceanComputeShader.FindKernel("CS_ButterflyPass");
 
         threadGroupsX = Mathf.CeilToInt(N / 16.0f);
@@ -203,7 +196,7 @@ public class OceanScript : MonoBehaviour
         // Horizontal IFFT Pass
         OceanComputeShader.SetInt("_Direction", 0);
 
-        for (int i = 1; i < N; i <<=1)
+        for (int i = 1; i < N; i <<=1) // Run log2N iterations for each stage in Cooley-Tukey
         {
             OceanComputeShader.SetInt("_Stage", i);
             ButterflyPass(PingPong);
@@ -220,26 +213,32 @@ public class OceanScript : MonoBehaviour
             PingPong = !PingPong;
         }
 
+        // Send final results to the inversion/permute pass to write to height map
         InversionPermutePass(PingPong, PingPong0, PingPong1);
     }
 
     void Update()
     {
         // If any adjustments to parameters
-        if ((N != prevN) || (L != prevL))
+        if ((N != prevN) 
+            || (L != prevL) 
+            || (intensity != prevIntensity) 
+            || (windSpeed != prevWindSpeed)
+           )
         {
+            // Initialize all textures + compute h0k
             InitializeSimulation();
-
-            //IFFT(initialSpectrum, FFTBuffer);
         }
 
+        // Compute h(k) using h0(k) + conjugate of h0(-k)
         OceanComputeShader.SetFloat("_Time", Time.time);
-
         GenerateSpectrum();
 
+        // Run the inverse FFT to convert frequency data to height data
+        // InversionPermutePass is found in here, which later writes to heightMap
         IFFT(spectrumTexture, FFTBuffer);
-        //IFFT(true, FFTBuffer, spectrumTexture);
 
+        // Generate mipmaps to reduce artifacts at a far-away distance
         heightMap.GenerateMips();
         OceanMaterial.SetTexture("_DisplacementTexture", heightMap);
     }
