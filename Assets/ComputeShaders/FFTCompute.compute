@@ -1,8 +1,7 @@
-#pragma kernel CS_InitializeSpectrum	// 0
-#pragma kernel CS_GenerateSpectrum	    // 1
-#pragma kernel CS_ButterflyPass			// 3
-#pragma kernel CS_InvertPermute			// 4
-#pragma kernel CS_InitializeExampleSpectrum
+#pragma kernel CS_InitializeSpectrum	 // 0
+#pragma kernel CS_GenerateSpectrum	     // 1
+#pragma kernel CS_ButterflyPass			 // 3
+#pragma kernel CS_InvertPermute			 // 4
 
 #define PI 3.14159265358979323846
 #define M_PI 3.1415926535897932384626433832795
@@ -17,8 +16,6 @@ RWTexture2D<float4> PingPong0;
 RWTexture2D<float4> PingPong1;
 RWTexture2D<float4> Input;
 RWTexture2D<float4> Output;
-
-StructuredBuffer<int> bit_reversed;
 
 // Global Params
 uint _N;
@@ -166,7 +163,7 @@ void CS_ButterflyPass(uint3 id : SV_DispatchThreadID, uint3 groupId : SV_GroupID
 {
 	int2 pCoord = int2(id.x, groupId.y);
 	
-	float4 data; //= ButterflyTexture[int2(_Stage, id.x)];
+	float4 data;
 	float2 a;
 	float2 b;
 	float2 w;
@@ -175,7 +172,7 @@ void CS_ButterflyPass(uint3 id : SV_DispatchThreadID, uint3 groupId : SV_GroupID
 	int threadID = _Direction ? id.y : id.x;
 	
 	// Index calculations??? https://github.com/achalpandeyy/OceanFFT/blob/master/Source/Shaders/CS_FFTHorizontal.comp
-	int inIdx = threadID & (_Stage - 1); // stuff for calculating theta
+	int inIdx = threadID & (_Stage - 1);
 	int outIdx = ((threadID - inIdx) << 1) + inIdx;
 	
 	float theta = -M_PI * (float(inIdx) / (float) _Stage);
@@ -183,6 +180,7 @@ void CS_ButterflyPass(uint3 id : SV_DispatchThreadID, uint3 groupId : SV_GroupID
 	// Assign twiddle
 	w = euler(theta);
 	
+	// Referenced Achel Pandeyy's FFT implementation -- had trouble precomputing some indices + twiddle values before
 	int2 aIndices = id.xy;
 	int2 bIndices0 = int2(id.x + threadCount, id.x);
 	int2 bIndices1 = int2(id.y, id.y + threadCount);
@@ -193,7 +191,6 @@ void CS_ButterflyPass(uint3 id : SV_DispatchThreadID, uint3 groupId : SV_GroupID
 	
 	int2 ppX = _Direction ? outIndices0 : outIdxWStage;
 	int2 ppY = _Direction ? outIdxWStage : outIndices1;
-	
 	
 	if (!_PingPong)
 	{
@@ -225,23 +222,6 @@ void CS_ButterflyPass(uint3 id : SV_DispatchThreadID, uint3 groupId : SV_GroupID
 		PingPong0[int2(ppX[0], ppY[0])] = float4(result0.xy, 0, 1);
 		PingPong0[int2(ppX[1], ppY[1])] = float4(result0.zw, 0, 1);
 	}
-}
-
-[numthreads(8, 8, 1)]
-void CS_InitializeExampleSpectrum(uint3 id : SV_DispatchThreadID)
-{
-	if (id.x >= 4 || id.y >= 4)
-		return;
-
-	float4 exampleData[4][4] =
-	{
-		{ float4(1, 0, 1, 0), float4(0, 0, 0, 0), float4(1, 0, 1, 0), float4(0, 0, 0, 0) },
-		{ float4(0, 0, 0, 0), float4(1, 0, 1, 0), float4(0, 0, 0, 0), float4(1, 0, 1, 0) },
-		{ float4(1, 0, 1, 0), float4(0, 0, 0, 0), float4(1, 0, 1, 0), float4(0, 0, 0, 0) },
-		{ float4(0, 0, 0, 0), float4(1, 0, 1, 0), float4(0, 0, 0, 0), float4(1, 0, 1, 0) }
-	};
-
-	InitialSpectrum[id.xy] = exampleData[id.y][id.x];
 }
 
 [numthreads(16, 16, 1)]

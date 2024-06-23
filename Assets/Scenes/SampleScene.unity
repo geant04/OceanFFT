@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 705507994}
-  m_IndirectSpecularColor: {r: 0.41679877, g: 0.44434163, b: 0.45980483, a: 1}
+  m_IndirectSpecularColor: {r: 0.41183677, g: 0.43682575, b: 0.4469707, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -225,8 +225,8 @@ MonoBehaviour:
   planeResolution: 64
   N: 256
   L: 64
-  intensity: 4
-  windSpeed: 100
+  intensity: 8
+  windSpeed: 200
   windDirection: {x: 0, y: 0}
 --- !u!1 &705507993
 GameObject:
@@ -315,13 +315,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 705507993}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.6322327, y: -0.7711462, z: 0.07238963, w: -0.019368032}
+  m_LocalRotation: {x: 0.8359112, y: -0.52106977, z: -0.123332806, w: 0.12053136}
   m_LocalPosition: {x: 0, y: 3, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 5, y: -187, z: -79}
+  m_LocalEulerAnglesHint: {x: 4.185, y: -160.568, z: -115.408}
 --- !u!1 &1367522911
 GameObject:
   m_ObjectHideFlags: 0
@@ -381,7 +381,7 @@ Camera:
     height: 1
   near clip plane: 0.3
   far clip plane: 1000
-  field of view: 60
+  field of view: 38
   orthographic: 0
   orthographic size: 5
   m_Depth: -1
@@ -407,13 +407,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1367522911}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 5.49, z: -100}
+  m_LocalRotation: {x: 0.056025364, y: 0.24428092, z: -0.014138626, w: 0.96798146}
+  m_LocalPosition: {x: -15.95, y: 7.293, z: -31.04}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 6.625, y: 28.327, z: 0}
 --- !u!1 &1598490562
 GameObject:
   m_ObjectHideFlags: 0
@@ -432,7 +432,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!65 &1598490563
 BoxCollider:
   m_ObjectHideFlags: 0

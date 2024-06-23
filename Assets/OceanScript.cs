@@ -217,6 +217,15 @@ public class OceanScript : MonoBehaviour
         InversionPermutePass(PingPong, PingPong0, PingPong1);
     }
 
+    // Requires heightmap to be made; generates the normals from a heightmap
+    void GenerateNormals()
+    {
+        int kernelID = OceanComputeShader.FindKernel("CS_CentralDifferentiation");
+        OceanComputeShader.SetTexture(kernelID, "Normals", normalMap);
+        OceanComputeShader.SetTexture(kernelID, "Displacement", heightMap);
+        OceanComputeShader.Dispatch(kernelID, threadGroupsX, threadGroupsY, 1);
+    }
+
     void Update()
     {
         // If any adjustments to parameters
