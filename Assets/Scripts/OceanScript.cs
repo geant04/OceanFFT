@@ -4,7 +4,14 @@ using UnityEngine;
 
 public class OceanScript : MonoBehaviour
 {
-    Mesh mesh;
+    List<GameObject> ActiveTiles;
+    GameObject Tile;
+    int tiles = 0;
+
+    // Assign a camera to begin?
+    public Camera MainCamera;
+
+    Mesh Mesh;
     Material OceanMaterial;
 
     // Shaders + Compute Shader params
@@ -13,14 +20,18 @@ public class OceanScript : MonoBehaviour
 
     public Shader OceanShader;
 
+    // Sky
+    public Material SkyMaterial;
+
     // SerializeFields
-    [SerializeField] Vector2 size = new Vector2(1,1);
+    [SerializeField] Vector2 Size = new Vector2(1,1);
     [SerializeField] int planeResolution = 1;
     [SerializeField] int N = 32;
     [SerializeField] int L = 64;
     [SerializeField] float intensity;
     [SerializeField] float windSpeed;
     [SerializeField] Vector2 windDirection;
+    [Range(0.0f, 1.0f)] public float timeOfDay;
     
     // RenderTextures
     private RenderTexture heightMap,
@@ -36,16 +47,17 @@ public class OceanScript : MonoBehaviour
     private int prevL;
     private float prevIntensity;
     private float prevWindSpeed;
+    private float prevTimeOfDay;
 
     // Builds nxm sized grid with i resolution
     void CreatePlane()
     {
-        this.GetComponent<MeshFilter>().mesh = mesh = new Mesh();
-        mesh.name = "Ocean Mesh";
-        mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+        Mesh = new Mesh();
+        Mesh.name = "Ocean Mesh";
+        Mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
         vertices = new Vector3[(planeResolution + 1) * (planeResolution + 1)];
-        float xPerStep = size.x / planeResolution;
-        float zPerStep = size.y / planeResolution;
+        float xPerStep = Size.x / planeResolution;
+        float zPerStep = Size.y / planeResolution;
 
 
         Vector2[] uvs = new Vector2[vertices.Length];
@@ -55,15 +67,15 @@ public class OceanScript : MonoBehaviour
         // this is a neat i = 0 trick to get the index
         for (int i = 0, z = 0; z < planeResolution + 1; z++) {
             for (int x = 0; x < planeResolution + 1; x++, i++) {
-                vertices[i] = new Vector3(((float)x * xPerStep) - (size.y / 2) , 0, ((float)z * zPerStep) - (size.y / 2));
+                vertices[i] = new Vector3(((float)x * xPerStep) - (Size.y / 2) , 0, ((float)z * zPerStep) - (Size.y / 2));
                 uvs[i] = new Vector2((float)x / planeResolution, (float)z / planeResolution);
                 tangents[i] = tangent;
             }
         }
 
-        mesh.vertices = vertices;
-        mesh.uv = uvs;
-        mesh.tangents = tangents;
+        Mesh.vertices = vertices;
+        Mesh.uv = uvs;
+        Mesh.tangents = tangents;
 
         int[] triangles = new int[planeResolution * planeResolution * 6];
         
@@ -82,15 +94,66 @@ public class OceanScript : MonoBehaviour
             }
         }
 
-        mesh.triangles = triangles;
+        Mesh.triangles = triangles;
     }
-
     void CreateMaterial()
     {
         OceanMaterial = new Material(OceanShader);
         OceanMaterial.name = "Ocean Material";
-        GetComponent<MeshRenderer>().material = OceanMaterial;
+        //GetComponent<MeshRenderer>().material = OceanMaterial;
     }
+
+    void CreateTile(Vector3 tilePosition)
+    {
+        // Create a new tile
+        GameObject newTile = new GameObject("Tile " + tiles);
+        newTile.AddComponent<MeshRenderer>();
+        newTile.AddComponent<MeshFilter>();
+        newTile.transform.SetParent(transform.Find("Tiles"));
+
+        // Assign ocean tile mesh renderer properties
+        newTile.GetComponent<MeshRenderer>().material = OceanMaterial;
+        newTile.GetComponent<MeshFilter>().mesh = Mesh;
+
+        // Get nearest tile position based on size -- assume we have a square?
+        float posX = tilePosition.x - tilePosition.x % Size.x;
+        float posY = tilePosition.y - tilePosition.y % Size.y;
+        float posZ = 0;
+
+        // Assign tile transform properties
+        newTile.transform.position = new Vector3(posX, posY, posZ);
+        newTile.transform.localScale = new Vector3(1.0f, 1.0f, 1.0f);
+
+        // Add a new tile
+        if (ActiveTiles != null)
+        {
+            ActiveTiles.Add(newTile);
+            tiles = ActiveTiles.Count;
+        }
+    }
+
+    void ClearTileByID(int ID)
+    {
+        // do something
+    }
+
+    // Wipe out tiles
+    void ClearAllTiles()
+    {
+        foreach (GameObject Tile in ActiveTiles)
+        {
+            Destroy(Tile);
+        }
+
+        ActiveTiles.Clear();
+        tiles = 0;
+    }
+
+    void RunTilingSystem()
+    {
+        // Do something
+    }
+    
 
     // Creates a RenderTexture for use in our compute shaders, later passed into surface shader
     RenderTexture CreateRenderTexture(int width, int height, RenderTextureFormat format, bool useMips)
@@ -106,6 +169,16 @@ public class OceanScript : MonoBehaviour
         return rt;
     }
 
+    void AssignTimeOfDay()
+    {
+        prevTimeOfDay = timeOfDay;
+        OceanMaterial.SetFloat("_TimeOfDay", timeOfDay);
+        if (SkyMaterial != null)
+        {
+            SkyMaterial.SetFloat("_TimeOfDay", timeOfDay);
+        }
+    }
+
     void InitializeSimulation()
     {
         // Set previous values for updates; will check for these when we change something
@@ -118,6 +191,13 @@ public class OceanScript : MonoBehaviour
         CreatePlane();
         CreateMaterial();
 
+        // Tile system setup
+        if (ActiveTiles == null)
+        {
+            ActiveTiles = new List<GameObject>();
+        }
+        ActiveTiles.Clear();
+
         // Defines # of threadGroups, (8, 8, 1)
         threadGroupsX = Mathf.CeilToInt(N / 8.0f);
         threadGroupsY = threadGroupsX;
@@ -127,6 +207,7 @@ public class OceanScript : MonoBehaviour
         OceanComputeShader.SetInt("_HorizontalPatch", L);
         OceanComputeShader.SetFloat("_Intensity", intensity);
         OceanComputeShader.SetFloat("_WindSpeed", windSpeed);
+        AssignTimeOfDay();
 
         // Create the initial spectrum  texture -- should this require mips? Experiment with this
         initialSpectrum = CreateRenderTexture(N, N, RenderTextureFormat.ARGBFloat, true);
@@ -237,6 +318,14 @@ public class OceanScript : MonoBehaviour
         {
             // Initialize all textures + compute h0k
             InitializeSimulation();
+
+            // TilingSystem function somewhere
+            CreateTile(MainCamera.transform.position);
+        }
+
+        if (prevTimeOfDay != timeOfDay)
+        {
+            AssignTimeOfDay();
         }
 
         // Compute h(k) using h0(k) + conjugate of h0(-k)
@@ -249,6 +338,7 @@ public class OceanScript : MonoBehaviour
 
         // Generate mipmaps to reduce artifacts at a far-away distance
         heightMap.GenerateMips();
+        OceanMaterial.SetFloat("_TileSize", Size.x);
         OceanMaterial.SetTexture("_DisplacementTexture", heightMap);
     }
 }

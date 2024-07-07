@@ -26,7 +26,7 @@ RenderSettings:
   m_AmbientIntensity: 1
   m_AmbientMode: 0
   m_SubtractiveShadowColor: {r: 0.42, g: 0.478, b: 0.627, a: 1}
-  m_SkyboxMaterial: {fileID: 10304, guid: 0000000000000000f000000000000000, type: 0}
+  m_SkyboxMaterial: {fileID: 2100000, guid: af048793e6e849a4094569d7021bc211, type: 2}
   m_HaloStrength: 0.5
   m_FlareStrength: 1
   m_FlareFadeSpeed: 3
@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 705507994}
-  m_IndirectSpecularColor: {r: 0.41183677, g: 0.43682575, b: 0.4469707, a: 1}
+  m_IndirectSpecularColor: {r: 0.5487742, g: 0.5486584, b: 0.5487742, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -123,6 +123,37 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &352402188
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 352402189}
+  m_Layer: 0
+  m_Name: Tiles
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &352402189
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 352402188}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 382453543}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &382453542
 GameObject:
   m_ObjectHideFlags: 0
@@ -154,7 +185,9 @@ Transform:
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children: []
+  m_Children:
+  - {fileID: 2024701685}
+  - {fileID: 352402189}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!23 &382453544
@@ -219,15 +252,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fe42ec51e2fcb3241b788500a0843c01, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  MainCamera: {fileID: 1367522913}
   OceanComputeShader: {fileID: 7200000, guid: c710cf8bffb381b4cb71b2ad8371a8f4, type: 3}
   OceanShader: {fileID: 4800000, guid: ac5f381ac493f3a4c847a58b320ba68d, type: 3}
-  size: {x: 30, y: 30}
-  planeResolution: 64
-  N: 256
+  SkyMaterial: {fileID: 2100000, guid: af048793e6e849a4094569d7021bc211, type: 2}
+  Size: {x: 30, y: 30}
+  planeResolution: 128
+  N: 512
   L: 64
-  intensity: 8
+  intensity: 32
   windSpeed: 200
   windDirection: {x: 0, y: 0}
+  timeOfDay: 1
 --- !u!1 &705507993
 GameObject:
   m_ObjectHideFlags: 0
@@ -315,13 +351,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 705507993}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.8359112, y: -0.52106977, z: -0.123332806, w: 0.12053136}
+  m_LocalRotation: {x: -0.14039941, y: -0.9802716, z: 0.12687819, w: 0.057075977}
   m_LocalPosition: {x: 0, y: 3, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 4.185, y: -160.568, z: -115.408}
+  m_LocalEulerAnglesHint: {x: 13.457, y: -171.275, z: 17.333}
 --- !u!1 &1367522911
 GameObject:
   m_ObjectHideFlags: 0
@@ -333,6 +369,7 @@ GameObject:
   - component: {fileID: 1367522914}
   - component: {fileID: 1367522913}
   - component: {fileID: 1367522912}
+  - component: {fileID: 1367522915}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -408,12 +445,25 @@ Transform:
   m_GameObject: {fileID: 1367522911}
   serializedVersion: 2
   m_LocalRotation: {x: 0.056025364, y: 0.24428092, z: -0.014138626, w: 0.96798146}
-  m_LocalPosition: {x: -15.95, y: 7.293, z: -31.04}
+  m_LocalPosition: {x: -73.88, y: 7.293, z: -31.04}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 6.625, y: 28.327, z: 0}
+--- !u!114 &1367522915
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1367522911}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2c66dd39f6bcb3e4db8b8547a63f62ac, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  skyShader: {fileID: 4800000, guid: f343944c0b4312046942438a935c44fb, type: 3}
 --- !u!1 &1598490562
 GameObject:
   m_ObjectHideFlags: 0
@@ -513,11 +563,42 @@ Transform:
   m_GameObject: {fileID: 1598490562}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0.61, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalPosition: {x: -50.5, y: -1.04, z: 7.6}
+  m_LocalScale: {x: 5.1807, y: 5.1807, z: 5.1807}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &2024701684
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2024701685}
+  m_Layer: 0
+  m_Name: OriginalPlane
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2024701685
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2024701684}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 382453543}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
