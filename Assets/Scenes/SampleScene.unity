@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 705507994}
-  m_IndirectSpecularColor: {r: 0.5487742, g: 0.5486584, b: 0.5487742, a: 1}
+  m_IndirectSpecularColor: {r: 1.0303289, g: 1.2629608, b: 1.6663823, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -260,7 +260,7 @@ MonoBehaviour:
   planeResolution: 128
   N: 512
   L: 64
-  intensity: 32
+  intensity: 64
   windSpeed: 200
   windDirection: {x: 0, y: 0}
   timeOfDay: 1

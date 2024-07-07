@@ -55,10 +55,16 @@ Shader "Custom/DebugShader"
             float3 worldPos = mul(unity_ObjectToWorld, float4(localVertex, 1.0));
             i.uv = worldPos.xz / _TileSize;
 
-            float heightData = tex2Dlod(_DisplacementTexture, float4(i.uv, 0, 0)).r;
-            localVertex.y += heightData;
-            localVertex.y *= 100;
-            localVertex.y -= 0;
+            float2 displacementData = tex2Dlod(_DisplacementTexture, float4(i.uv, 0, 0)).rg;
+            // convert from 0-1 to -1 to 1?
+            float2 dy = 
+                0.99 * tex2Dlod(_DisplacementTexture, float4(i.uv, 0, 0)).rg
+                + 0.01 * tex2Dlod(_DisplacementTexture, float4(i.uv * 10, 0, 0)).rg;
+
+            localVertex.y = 1;
+            localVertex.y *= dy.r;
+            localVertex.xz += dy.g;
+            localVertex.y -= 0.025; // adjustable parameter
 
             i.vertex = UnityObjectToClipPos(localVertex);
             i.viewDir = WorldSpaceViewDir(float4(localVertex, 1.0));
@@ -69,8 +75,8 @@ Shader "Custom/DebugShader"
         float3 getNormal(float2 uv)
         {
             // https://web.archive.org/web/20101129095145/http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.161.8979&rep=rep1&type=pdf
-            float texelSize = 1.0 / 256.0;
-            float texelAspect = 512;
+            float texelSize = 1.0 / 512.0;
+            float texelAspect = 512.0;
 
             // experiment with calculating the normal in the shader; might be super slow
             float4 h;
@@ -98,6 +104,27 @@ Shader "Custom/DebugShader"
             float lambert = _k3 * max(dot(wh, wi), 0.0);
             float3 lo = (hTerm * halfLamb + refl) * _ScatterColor * _LightColor0;
             lo += lambert * _ScatterColor * _SunColor + _pf * _BubbleColor * _LightColor0;
+
+            return lo;
+        }
+
+        // Different SSS approach
+        float3 L_Scatter2(float3 wi, float3 wo, float3 n, float dy)
+        {
+            float distortion = 1.0;
+            float power = 1.5;
+            float scale = 5.0;
+            float attenuation = _k2 * pow(max(dot(wo, normalize(n -wi)), 0.0), 2.0);
+
+            float3 wh = normalize(wi + n * distortion);
+            float vdotH = pow(saturate(dot(wo, -wh)), power) * scale; // angle from view to normal + distortion
+
+            float h = 20.0 * dy;
+            float thickness = _k1 * h * pow(max(dot(wo, -wi), 0.0), 4.0);
+
+            float3 lo = attenuation * (vdotH * _ScatterColor) * thickness;
+            lo = _ScatterColor * _LightColor0 * lo;
+            lo += _pf * _BubbleColor * _LightColor0;
 
             return lo;
         }
@@ -130,45 +157,21 @@ Shader "Custom/DebugShader"
             return clamp((dcOffset + amp * cos(TAU * (phase + freq * x))), 0., 1.);
         }
 
-        float3 GetSkyColor(float timeOfDay, float altitude)
+        float3 GetSkyColor(float3 rd, float3 wi)
         {
-            float middleDay = 0.8 * pow(cos(2.0 * (timeOfDay - 0.9)), 4.0) + 0.2;
-            float x = timeOfDay;
+            float sun_amount = max(dot(rd, wi), 0.0);
+            float3 sun_color = float3(1., .7, .55);
 
-            float mR = cosGradient(0.4384, 1.0984, 0.4184, -1.310, x);
-            float mG = cosGradient(0.5084, 0.9874, 0.5984, -1.481, x);
-            float mB = cosGradient(0.7284, -0.391, -0.551, 0.1884, x);
+            float3 sky = lerp(float3(.0, .1, .4), float3(.3, .6, .8), 1.0 - rd.y);
+            sky = sky + sun_color * min(pow(sun_amount, 1500.0) * 5.0, 1.0);
+            sky = sky + sun_color * min(pow(sun_amount, 2.0) * .6, 1.0);
 
-            float3 botColor = lerp(float3(0.0, 0.0, 0.0), float3(1.0, 1.0, 1.0), timeOfDay);
-            float3 midColor = float3(mR, mG, mB);
-            float3 topColor = lerp(float3(0.0, 0.0, 0.0), float3(0.6, 0.8, 0.92), timeOfDay);
-
-            float powStrength = 2.0;
-
-            float topStrength = pow(altitude, powStrength);
-            float botStrength = pow(1.0 - altitude, powStrength);
-
-            topColor;
-            botColor *= botStrength;
-
-            float midAltPow = 1.0 - clamp(2.3 * topStrength + 1.35 * botStrength, 0.0, 1.0);
-            //midColor midAltPow;
-
-            float balanceFunc = 2.0 * pow(cos(1.2 * altitude - 1.5), 4.0) + 0.3;
-            balanceFunc = clamp(balanceFunc, 0, 1);
-
-            float3 skyColor = lerp(midColor, topColor, 1.0 - altitude);
-
-            return skyColor;
+            return sky;
         }
 
-        float3 sampleSky(float3 r)
+        float3 sampleSky(float3 wo, float3 wi)
         {
-            float3 normR = normalize(0.50 * r + 0.50);
-            float alt = 1.0 - clamp(dot(normR, float3(0, 1.0, 0)), 0, 1);
-
-            float3 skyColor = GetSkyColor(1, alt);
-            return normR;
+            return GetSkyColor(wo, wi);
         }
 
         float4 fp(v2f i) : SV_TARGET
@@ -177,10 +180,10 @@ Shader "Custom/DebugShader"
 
             // resolution = 256
             // ocean size = patch size? or something??
-            float3 normal = getNormal(i.uv);
+            float3 normal = 0.99 * getNormal(i.uv) + 0.01 * getNormal(i.uv * 10.0);
 
             // height sample
-            float4 dy = tex2D(_DisplacementTexture, uv).r * 10;
+            float4 dy = tex2D(_DisplacementTexture, uv);
 
             // actual stuff
             float3 wo = normalize(-i.viewDir);
@@ -192,22 +195,23 @@ Shader "Custom/DebugShader"
             // Ambient diffuse + subsurface scattering lighting
             float3 sctrNor = normal;
             float3 sctrWh = normalize(-wo + sctrNor);
-            float3 l_sctr = L_Scatter(wi, -wo, sctrWh, dy);
+            float3 l_sctr = L_Scatter(wi, -wo, sctrWh, dy.r * 40.0);
+            //float3 l_sctr = L_Scatter2(wi, -wo, sctrNor, dy);
 
             // Environment reflections / glossy -- non PBR
             float3 fresNor = normal;
-            float3 fresWh = normalize(wo + fresNor);
-            float3 F = FresnelSchlick(abs(dot(fresWh, wo)));
-            F = pow(1.0 - abs(dot(normal, wo)), 5.0);
+            float3 fresWh = normalize(wo - fresNor);
+            float fresTheta = clamp(dot(-fresNor, wo), 0, 1);
+            float3 F = FresnelSchlick(fresTheta);
 
             float3 reflNor = normalize(normal);
             float3 refl = normalize(reflect(wo, reflNor));
-            float3 env_irradiance = sampleSky(refl);
+            float3 env_irradiance = sampleSky(refl, wi);
             float3 lo_env = env_irradiance;
              
             // Additional specular highlights from the sun
             wh = normalize(-wo + wi);
-            float3 spec = pow(abs(dot(normal, wh)), 128.0);
+            float3 spec = pow(abs(dot(-normal, wh)), 128.0);
             float3 lo_sun = _LightColor0.xyz * spec * 1.0;
 
             wo = -wo;
@@ -216,11 +220,10 @@ Shader "Custom/DebugShader"
             //float3 loSunDenom = 4 * max(dot(float3(0, 0, 1), wo)); // masking and shadowing
 
             // Additional variable naming for organization
-            float3 kd = (1 - F) * l_sctr; // diffuse
-            float3 ks = F * lo_env + F * lo_sun; // does lo_sun need * F to be physically accurate?
+            float3 lo = lerp(l_sctr, lo_env + lo_sun, (dy.r * 30.0) * F);
 
-            float3 lo = kd + ks;
-            
+            float3 testFloat = normal.g;
+
             return float4(lo, 1.0);
         }
 

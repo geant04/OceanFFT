@@ -32,6 +32,7 @@ Shader "Custom/SkyShader"
                 UNITY_FOG_COORDS(1)
                 float4 vertex : SV_POSITION;
                 float4 worldPos: TEXCOORD1;
+                float3 viewDir : COLOR;
             };
 
             sampler2D _MainTex;
@@ -45,6 +46,7 @@ Shader "Custom/SkyShader"
                 o.worldPos = mul(unity_ObjectToWorld, v.vertex);
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
                 UNITY_TRANSFER_FOG(o,o.vertex);
+                o.viewDir = WorldSpaceViewDir(float4(v.vertex.xyz, 1.0));
                 return o;
             }
 
@@ -86,20 +88,26 @@ Shader "Custom/SkyShader"
                 return skyColor;
             }
 
+            float3 SkyColor(float3 rd, float3 wi)
+            {
+                float sun_amount = max(dot(rd, wi), 0.0);
+                float3 sun_color = float3(1., .7, .55);
+
+                float3 sky = lerp(float3(.0, .1, .4), float3(.3, .6, .8), 1.0 - rd.y);
+                sky = sky + sun_color * min(pow(sun_amount, 1500.0) * 5.0, 1.0);
+                sky = sky + sun_color * min(pow(sun_amount, 2.0) * .6, 1.0);
+
+                return sky;
+            }
+
 
             fixed4 frag(v2f i) : SV_Target
             {
-                float4 normWorldPos = normalize(i.worldPos);
-                
-                float altitude = normWorldPos.g * 0.5 + 0.5;
+                float4 wo = normalize(i.worldPos);
+                float3 wi = _WorldSpaceLightPos0;
+                float3 color = SkyColor(wo, wi);
 
-                float3 skyColor = GetSkyColor(_TimeOfDay, altitude);
-
-                float4 col = float4(skyColor, 1.0);
-
-                // apply fog
-                UNITY_APPLY_FOG(i.fogCoord, col);
-                return normWorldPos * 0.50 + 0.50;
+                return float4(color, 1.0);
             }
             ENDCG
         }

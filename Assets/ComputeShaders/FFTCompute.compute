@@ -137,7 +137,8 @@ void CS_GenerateSpectrum(uint3 id : SV_DispatchThreadID)
 {
 	// h_tilde = (h_0(k) * exp(i * omega(k)*t), h_0(-k) * exp(-i * omega(k) * t))
 	float2 k = GatherWaveNumber(id.xy);
-	float DispertionRelation = sqrt(length(k) * 9.81);
+	float kmag = length(k);
+	float DispertionRelation = sqrt(kmag * 9.81);
 	
 	// Keep in mind id.xy is within the [0, N) space -- id.xy = k + (N/2.0)
 	// We index like this for consistency -- we should be sampling h_0(k) instead.
@@ -149,10 +150,17 @@ void CS_GenerateSpectrum(uint3 id : SV_DispatchThreadID)
 	
 	float2 realComp = complexMult(InitialReal, exp);
 	float2 complexComp = complexMult(InitialConjugate, float2(exp.x, -exp.y));
+	float2 htilde = realComp + complexComp;
+	float2 ih = float2(-htilde.y, htilde.x);
 	
 	// Refer to the Tessendorf paper for the equation.
 	// Let's do an experiment: see if writing to the other two channels left works.
-	Spectrum[id.xy] = float4(realComp + complexComp, 0, 1.0);
+	// https://developer.download.nvidia.com/assets/gamedev/files/sdk/11/OceanCS_Slides.pdf
+	float2 dy = htilde;
+	float2 dx = ih * k.x / kmag;
+	float2 dz = ih * k.y / kmag;
+	
+	Spectrum[id.xy] = float4(dy, dz);
 	
 	// TO DO: Choppy waves, realComp + complexComp = dy, store (dx,dz) next
 	// https://tore.tuhh.de/entities/publication/1cd390d3-732b-41c1-aa2b-07b71a64edd2 provides very helpful code in their Appendices.
@@ -204,8 +212,8 @@ void CS_ButterflyPass(uint3 id : SV_DispatchThreadID, uint3 groupId : SV_GroupID
 		wb = complexMult(w, b.ba);
 		float4 result1 = float4(a.ba + wb, a.ba - wb);
 
-		PingPong1[int2(ppX[0], ppY[0])] = float4(result0.xy, 0, 1); //float4(1, 0, 0, 0);
-		PingPong1[int2(ppX[1], ppY[1])] = float4(result0.zw, 0, 1); // float4(0, 1, 0, 0);
+		PingPong1[int2(ppX[0], ppY[0])] = float4(result0.xy, result1.xy); //float4(1, 0, 0, 0);
+		PingPong1[int2(ppX[1], ppY[1])] = float4(result0.zw, result1.zw); // float4(0, 1, 0, 0);
 	}
 	else
 	{
@@ -219,8 +227,8 @@ void CS_ButterflyPass(uint3 id : SV_DispatchThreadID, uint3 groupId : SV_GroupID
 		wb = complexMult(w, b.ba);
 		float4 result1 = float4(a.ba + wb, a.ba - wb);
 
-		PingPong0[int2(ppX[0], ppY[0])] = float4(result0.xy, 0, 1);
-		PingPong0[int2(ppX[1], ppY[1])] = float4(result0.zw, 0, 1);
+		PingPong0[int2(ppX[0], ppY[0])] = float4(result0.xy, result1.xy);
+		PingPong0[int2(ppX[1], ppY[1])] = float4(result0.zw, result1.zw);
 	}
 }
 
@@ -231,18 +239,17 @@ void CS_InvertPermute(uint3 id : SV_DispatchThreadID)
 	int index = (id.x + id.y) % 2;
 	float perm = perms[index];
 	float4 output;
-	float h;
+	float4 h;
 	
 	if (!_PingPong)
 	{
-		h = PingPong0[id.xy].r;
+		h = PingPong0[id.xy];
 	}
 	else
 	{
-		h = PingPong1[id.xy].r;
+		h = PingPong1[id.xy];
 	}
 	
-	float pVal = perm * (h / (float) (_N * _N));
-	output = float4(pVal, pVal, pVal, 1);
+	output = perm * (h / (float) (_N * _N));
 	Displacement[id.xy] = output;
 }

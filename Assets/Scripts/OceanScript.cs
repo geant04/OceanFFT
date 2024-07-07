@@ -196,7 +196,7 @@ public class OceanScript : MonoBehaviour
         {
             ActiveTiles = new List<GameObject>();
         }
-        ActiveTiles.Clear();
+        ClearAllTiles();
 
         // Defines # of threadGroups, (8, 8, 1)
         threadGroupsX = Mathf.CeilToInt(N / 8.0f);
