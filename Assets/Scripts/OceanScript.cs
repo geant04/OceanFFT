@@ -35,6 +35,8 @@ public class OceanScript : MonoBehaviour
     [SerializeField] [Range(0.0f, 10.0f)] float t0;
     [SerializeField] [Range(0.0f, 10.0f)] float t1;
     [SerializeField] Vector2 windDirection;
+    [SerializeField] bool EnableMovingCamera;
+    [SerializeField] float CameraSpeed;
     [Range(0.0f, 1.0f)] public float timeOfDay;
 
     // RenderTextures
@@ -454,16 +456,19 @@ public class OceanScript : MonoBehaviour
             AssignNewParams();
             InitializeSimulation();
 
-            //
-            List<Vector3> keysToRemove = new List<Vector3>();
-            foreach (var tile in existingTiles)
+            // Wipes out all tiles
+            if (!EnableMovingCamera)
             {
-                Destroy(tile.Value);
-                keysToRemove.Add(tile.Key);
-            }
-            foreach (var key in keysToRemove)
-            {
-                existingTiles.Remove(key);
+                List<Vector3> keysToRemove = new List<Vector3>();
+                foreach (var tile in existingTiles)
+                {
+                    Destroy(tile.Value);
+                    keysToRemove.Add(tile.Key);
+                }
+                foreach (var key in keysToRemove)
+                {
+                    existingTiles.Remove(key);
+                }
             }
 
             // TilingSystem function somewhere
@@ -474,7 +479,7 @@ public class OceanScript : MonoBehaviour
         {
             previousCameraPosition = MainCamera.transform.position;
             previousCameraRotation = MainCamera.transform.rotation;
-            //RunTilingSystem();
+            RunTilingSystem();
         }
 
         AssignShaderUniforms();
@@ -489,6 +494,6 @@ public class OceanScript : MonoBehaviour
         GenerateHeightMap(0);
         GenerateHeightMap(1);
 
-        //MainCamera.transform.position += new Vector3(0, 0, 1) * 8.0f * Time.deltaTime;
+        if (EnableMovingCamera) MainCamera.transform.position += new Vector3(0, 0, 1) * CameraSpeed * Time.deltaTime;
     }
 }

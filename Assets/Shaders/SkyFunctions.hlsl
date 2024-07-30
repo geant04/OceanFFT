@@ -91,7 +91,7 @@ float3 GetSkyColorOld(float3 rd, float3 wi)
 	float3 sun_color = float3(1., .7, .55);
 
 	float3 sky = lerp(float3(.0, .1, .4), float3(.3, .6, .8), 1.0 - rd.y);
-	sky = sky + sun_color * min(pow(sun_amount, 1500.0) * 5.0, 1.0);
+	sky = sky + sun_color * min(pow(sun_amount, 1000.0) * 0.1, 1.0);
 	sky = sky + sun_color * min(pow(sun_amount, 2.0) * .6, 1.0);
 
 	return sky;

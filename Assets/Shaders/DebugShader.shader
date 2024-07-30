@@ -3,17 +3,17 @@ Shader "Custom/OceanShader"
     Properties
     {
         // darker green colors
-        _ScatterColor("Scatter Color", Color) = (0.81761, 0.9982171, 1.0,1)
-        _BubbleColor("Bubble Color", Color) = (0.01370592, 0.1456759, 0.1792453, 1)
+        _ScatterColor("Scatter Color", Color) = (0.3291799, 0.6886792, 0.6886792,1)
+        _BubbleColor("Bubble Color", Color) = (0.03393853, 0.07999937, 0.1037736, 1)
         _SunColor("Sun Color", Color) = (1.0, 1.0, 1.0, 1)
 
         // fun parameters for tweaking
         _Range("Range", Range(0,1)) = 0.642
         _Bias("Height Bias", Range(0,1)) = 0
-        _k1("Height Scatter Strength", Range(0,1)) = 0.546
-        _k2("Light Reflectance", Range(0, 1)) = 0.074
+        _k1("Height Scatter Strength", Range(0,1)) = 0.609
+        _k2("Light Reflectance", Range(0, 1)) = 0.194
         _k3("Lambert bias", Range(0,1)) = 0.146
-        _pf("Bubble density", Range(0,1)) = 0.75
+        _pf("Bubble density", Range(0,1)) = 0.219
 
         _t("T", Range(0,1)) = 0.566
     }
@@ -222,24 +222,24 @@ Shader "Custom/OceanShader"
             // Ambient diffuse + subsurface scattering lighting
             float3 sctrNor = normal;
             float3 sctrWh = normalize(-wo + sctrNor);
-            float3 l_sctr = L_Scatter(wi, -wo, sctrWh, dy.r * 80.0);
+            float3 l_sctr = L_Scatter(wi, -wo, sctrWh, dy.r * 20.0 + 0.05);
             //float3 l_sctr = L_Scatter2(wi, -wo, sctrNor, dy);
 
             // Environment reflections / glossy -- non PBR
             float3 fresNor = normal;
             float3 fresWh = normalize(-wo + fresNor);
-            float fresTheta = max(dot(fresNor, -wo), 0.0);
+            float fresTheta = max(dot(-fresNor, wo), 0.0);
             float3 F = FresnelSchlick(fresTheta);
 
-            float3 reflNor = normalize(normal * 1.2);
+            float3 reflNor = normalize(normal);
             float3 refl = normalize(reflect(wo, reflNor));
             float3 env_irradiance = sampleSky(refl, wi);
             float3 lo_env = env_irradiance;
              
             // Additional specular highlights from the sun
             wh = normalize(-wo + wi);
-            float3 spec = pow(abs(dot(-normal, wh)), 64.0);
-            float3 lo_sun = _LightColor0.xyz * spec * 1.0;
+            float3 spec = pow(abs(dot(-normal, wh)), 128.0);
+            float3 lo_sun = _LightColor0.xyz * spec * 0.04;
 
             wo = -wo;
             //wh = normalize(wo + wi);
@@ -247,7 +247,7 @@ Shader "Custom/OceanShader"
             //float3 loSunDenom = 4 * max(dot(float3(0, 0, 1), wo)); // masking and shadowing
 
             // Additional variable naming for organization
-            float3 lo = lerp(l_sctr, lo_env + lo_sun, 0.90 * F);
+            float3 lo = lerp(l_sctr, lo_env + lo_sun, F);
 
             float3 testFloat = normal.g;
 
