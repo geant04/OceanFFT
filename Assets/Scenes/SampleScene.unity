@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 705507994}
-  m_IndirectSpecularColor: {r: 1.0303289, g: 1.2629608, b: 1.6663823, a: 1}
+  m_IndirectSpecularColor: {r: 0.38225162, g: 0.6761262, b: 0.848001, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -183,7 +183,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalScale: {x: 1, y: 150, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 2024701685}
@@ -256,13 +256,25 @@ MonoBehaviour:
   OceanComputeShader: {fileID: 7200000, guid: c710cf8bffb381b4cb71b2ad8371a8f4, type: 3}
   OceanShader: {fileID: 4800000, guid: ac5f381ac493f3a4c847a58b320ba68d, type: 3}
   SkyMaterial: {fileID: 2100000, guid: af048793e6e849a4094569d7021bc211, type: 2}
-  Size: {x: 30, y: 30}
-  planeResolution: 128
+  Size: {x: 16, y: 16}
+  planeResolution: 64
   N: 512
-  L: 64
-  intensity: 64
-  windSpeed: 200
-  windDirection: {x: 0, y: 0}
+  L: 2000000010000000
+  intensity:
+  - 64
+  - 64
+  windSpeed:
+  - 64
+  - 64
+  waveSize:
+  - 100
+  - 100
+  Scales:
+  - 0.25
+  - 1
+  t0: 2
+  t1: 4
+  windDirection: {x: 8, y: 1}
   timeOfDay: 1
 --- !u!1 &705507993
 GameObject:
@@ -351,13 +363,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 705507993}
   serializedVersion: 2
-  m_LocalRotation: {x: -0.14039941, y: -0.9802716, z: 0.12687819, w: 0.057075977}
+  m_LocalRotation: {x: -0.15332782, y: -0.9835098, z: 0.024548128, w: -0.09271776}
   m_LocalPosition: {x: 0, y: 3, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 13.457, y: -171.275, z: 17.333}
+  m_LocalEulerAnglesHint: {x: 4.4, y: -190.1, z: 17.333}
 --- !u!1 &1367522911
 GameObject:
   m_ObjectHideFlags: 0
@@ -444,13 +456,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1367522911}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.056025364, y: 0.24428092, z: -0.014138626, w: 0.96798146}
-  m_LocalPosition: {x: -73.88, y: 7.293, z: -31.04}
+  m_LocalRotation: {x: 0.057755213, y: -0.030316863, z: 0.0017546953, w: 0.99786884}
+  m_LocalPosition: {x: -64.8, y: 1.38, z: -8.8}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 6.625, y: 28.327, z: 0}
+  m_LocalEulerAnglesHint: {x: 6.625, y: -3.48, z: 0}
 --- !u!114 &1367522915
 MonoBehaviour:
   m_ObjectHideFlags: 0

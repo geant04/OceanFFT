@@ -24,6 +24,7 @@ uint _N;
 uint _HorizontalPatch;
 float _Intensity;
 float _WindSpeed;
+float _WaveSize;
 
 // IFFT
 uint _Stage;
@@ -35,10 +36,10 @@ float _Choppiness;
 // Sample from a Gaussian Distribution of mean = 0, std = 1
 float2 GaussianNum(float2 u)
 {
-	float x = cos(2 * PI * u.x) * sqrt(-2.0 * log(u.x));
-	float y = cos(2 * PI * u.y) * sqrt(-2.0 * log(u.y));
+	float x = 2 * PI * u.x;
+	float y = sqrt(-2.0 * log(u.y));
 	
-	return float2(x, y);
+	return float2(y * cos(x), y * sin(x));
 }
 
 // Random number generator given seed
@@ -87,17 +88,18 @@ float2 PhillipsSpectrum(float2 k)
 	float kSq = pow(waveNumber, 2.0);
 	float kQuad = pow(kSq, 2.0);
 	float damping = pow(WindSpeed, 2.0) / 9.81;
+	float waveSize = _WaveSize;
 	
 	// Appendix A
 	float h0k = clamp(sqrt(A / kQuad)
 	* pow(dot(normalize(k), normalize(WindDirection)), 2.0)
 	* exp(-1 / (kSq * pow(damping, 2.0)))
-	* exp(-kSq * pow(_HorizontalPatch / 2000.0, 2.0)) / sqrt(2.0), -4000.0, 4000);
+	* exp(-kSq * pow(_HorizontalPatch / 2000.0, 2.0)) / sqrt(2.0), -waveSize, waveSize);
 
 	float h0minusk = clamp(sqrt(A / kQuad)
 	* pow(dot(normalize(-k), normalize(WindDirection)), 2.0)
 	* exp(-1 / (kSq * pow(damping, 2.0)))
-	* exp(-kSq * pow(_HorizontalPatch / 2000.0, 2.0)) / sqrt(2.0), -4000.0, 4000);
+	* exp(-kSq * pow(_HorizontalPatch / 2000.0, 2.0)) / sqrt(2.0), -waveSize, waveSize);
 	
 	return float2(h0k, h0minusk);
 }
@@ -112,7 +114,7 @@ void CS_InitializeSpectrum (uint3 id : SV_DispatchThreadID)
 	// multiplpied by the energy density determined by the Phillips spectrum.
 	// By Central Limit Theorem, we should statistically get an approximation
 	// of an actual ocean with more samples by using a Gaussian distribution.
-	float noise00 = hash(id.y * _N + id.x);
+	float noise00 = hash(id.y + id.x);
 	float noise01 = hash(noise00);
 	float noise02 = hash(noise01);
 	float noise03 = hash(noise02);
@@ -126,7 +128,7 @@ void CS_InitializeSpectrum (uint3 id : SV_DispatchThreadID)
 	float2 Gaussians2 = GaussianNum(float2(noise02, noise03));
 	
 	float2 h0k = Gaussians * Phillips.r;
-	float2 h0minusk = Gaussians2 * Phillips.r;
+	float2 h0minusk = Gaussians2 * Phillips.g;
 	
 	InitialSpectrum[id.xy] = float4(h0k, h0minusk);
 }
@@ -157,10 +159,10 @@ void CS_GenerateSpectrum(uint3 id : SV_DispatchThreadID)
 	// Let's do an experiment: see if writing to the other two channels left works.
 	// https://developer.download.nvidia.com/assets/gamedev/files/sdk/11/OceanCS_Slides.pdf
 	float2 dy = htilde;
-	float2 dx = ih * k.x / kmag;
-	float2 dz = ih * k.y / kmag;
+	float2 dx = ih * k.x;
+	float2 dz = ih * k.y;
 	
-	Spectrum[id.xy] = float4(dy, dz);
+	Spectrum[id.xy] = float4(dy, dx);
 	
 	// TO DO: Choppy waves, realComp + complexComp = dy, store (dx,dz) next
 	// https://tore.tuhh.de/entities/publication/1cd390d3-732b-41c1-aa2b-07b71a64edd2 provides very helpful code in their Appendices.
