@@ -1,0 +1,257 @@
+#pragma kernel CS_InitializeSpectrum	 // 0
+#pragma kernel CS_GenerateSpectrum	     // 1
+#pragma kernel CS_ButterflyPass			 // 3
+#pragma kernel CS_InvertPermute			 // 4
+
+#define PI 3.14159265358979323846
+#define M_PI 3.1415926535897932384626433832795
+
+// TextureBuffers
+RWTexture2D<float4> InitialSpectrum;
+RWTexture2D<float4> Spectrum;
+RWTexture2D<float4> Displacement;
+RWTexture2D<float4> Normals;
+
+RWTexture2D<float4> PingPong0;
+RWTexture2D<float4> PingPong1;
+RWTexture2D<float4> Input;
+RWTexture2D<float4> Output;
+
+// Global Params
+uint _N;
+
+// Phillips Spectrum Parameters
+uint _HorizontalPatch;
+float _Intensity;
+float _WindSpeed;
+float _WaveSize;
+
+// IFFT
+uint _Stage;
+bool _PingPong;
+int _Direction;
+float _Time;
+float _Choppiness;
+
+// Sample from a Gaussian Distribution of mean = 0, std = 1
+float2 GaussianNum(float2 u)
+{
+	float x = 2 * PI * u.x;
+	float y = sqrt(-2.0 * log(u.y));
+	
+	return float2(y * cos(x), y * sin(x));
+}
+
+// Random number generator given seed
+float hash(float p)
+{
+	p = frac(p * .1031);
+	p *= p + 33.33;
+	p *= p + p;
+	return frac(p);
+}
+
+// Euler
+float2 euler(float ik)
+{
+	return float2(cos(ik), sin(ik));
+}
+
+float2 complexMult(float2 u, float2 v)
+{
+	// u = a + bi
+	// v = c  + di
+	return float2(u.x * v.x - u.y * v.y, u.x * v.y + u.y * v.x);
+}
+
+float2 GatherWaveNumber(float2 id)
+{
+	float2 nm = id.xy;
+	nm -= ((float) _N / 2.0f); // Warp [0, N) to [-N/2, N/2) space
+	
+	// HorizontalPatch != L?????
+	return (2.0f * PI / (float) _HorizontalPatch) * nm;
+}
+
+// Returns "wave energy density" -- function of frequency
+// This value assists in determining the amplitude and phase of waves in the frequency domain
+float2 PhillipsSpectrum(float2 k)
+{
+	float WindSpeed = _WindSpeed;
+	float2 WindDirection = float2(1, 1);
+	
+	// A represents intensity
+	float A = _Intensity;
+	float waveNumber = length(k);
+	waveNumber = waveNumber < 0.00001 ? 0.00001 : waveNumber;
+	
+	float kSq = pow(waveNumber, 2.0);
+	float kQuad = pow(kSq, 2.0);
+	float damping = pow(WindSpeed, 2.0) / 9.81;
+	float waveSize = _WaveSize;
+	
+	// Appendix A
+	float h0k = clamp(sqrt(A / kQuad)
+	* pow(dot(normalize(k), normalize(WindDirection)), 2.0)
+	* exp(-1 / (kSq * pow(damping, 2.0)))
+	* exp(-kSq * pow(_HorizontalPatch / 2000.0, 2.0)) / sqrt(2.0), -waveSize, waveSize);
+
+	float h0minusk = clamp(sqrt(A / kQuad)
+	* pow(dot(normalize(-k), normalize(WindDirection)), 2.0)
+	* exp(-1 / (kSq * pow(damping, 2.0)))
+	* exp(-kSq * pow(_HorizontalPatch / 2000.0, 2.0)) / sqrt(2.0), -waveSize, waveSize);
+	
+	return float2(h0k, h0minusk);
+}
+
+[numthreads(8,8,1)]
+void CS_InitializeSpectrum (uint3 id : SV_DispatchThreadID)
+{	
+	float2 k = GatherWaveNumber(id.xy);
+	float2 Phillips = PhillipsSpectrum(k);
+	
+	// In theory, we gain a random amplitude and phase, which is 
+	// multiplpied by the energy density determined by the Phillips spectrum.
+	// By Central Limit Theorem, we should statistically get an approximation
+	// of an actual ocean with more samples by using a Gaussian distribution.
+	float noise00 = hash(id.y + id.x);
+	float noise01 = hash(noise00);
+	float noise02 = hash(noise01);
+	float noise03 = hash(noise02);
+	
+	noise00 = clamp(noise00, 0.001, 1.0);
+	noise01 = clamp(noise01, 0.001, 1.0);
+	noise02 = clamp(noise02, 0.001, 1.0);
+	noise03 = clamp(noise03, 0.001, 1.0);
+		
+	float2 Gaussians = GaussianNum(float2(noise00, noise01));
+	float2 Gaussians2 = GaussianNum(float2(noise02, noise03));
+	
+	float2 h0k = Gaussians * Phillips.r;
+	float2 h0minusk = Gaussians2 * Phillips.g;
+	
+	InitialSpectrum[id.xy] = float4(h0k, h0minusk);
+}
+
+
+[numthreads(8, 8, 1)]
+void CS_GenerateSpectrum(uint3 id : SV_DispatchThreadID)
+{
+	// h_tilde = (h_0(k) * exp(i * omega(k)*t), h_0(-k) * exp(-i * omega(k) * t))
+	float2 k = GatherWaveNumber(id.xy);
+	float kmag = length(k);
+	float DispertionRelation = sqrt(kmag * 9.81);
+	
+	// Keep in mind id.xy is within the [0, N) space -- id.xy = k + (N/2.0)
+	// We index like this for consistency -- we should be sampling h_0(k) instead.
+	float2 InitialReal = InitialSpectrum[id.xy].rg;
+	float2 InitialConjugate = InitialSpectrum[id.xy].ba;
+	InitialConjugate.y *= -1; // Conjugate
+	
+	float2 exp = euler(DispertionRelation * _Time);
+	
+	float2 realComp = complexMult(InitialReal, exp);
+	float2 complexComp = complexMult(InitialConjugate, float2(exp.x, -exp.y));
+	float2 htilde = realComp + complexComp;
+	float2 ih = float2(-htilde.y, htilde.x);
+	
+	// Refer to the Tessendorf paper for the equation.
+	// Let's do an experiment: see if writing to the other two channels left works.
+	// https://developer.download.nvidia.com/assets/gamedev/files/sdk/11/OceanCS_Slides.pdf
+	float2 dy = htilde;
+	float2 dx = ih * k.x;
+	float2 dz = ih * k.y;
+	
+	Spectrum[id.xy] = float4(dy, dx);
+	
+	// TO DO: Choppy waves, realComp + complexComp = dy, store (dx,dz) next
+	// https://tore.tuhh.de/entities/publication/1cd390d3-732b-41c1-aa2b-07b71a64edd2 provides very helpful code in their Appendices.
+}
+
+[numthreads(16, 16, 1)]
+void CS_ButterflyPass(uint3 id : SV_DispatchThreadID, uint3 groupId : SV_GroupID)
+{
+	int2 pCoord = int2(id.x, groupId.y);
+	
+	float4 data;
+	float2 a;
+	float2 b;
+	float2 w;
+	
+	int threadCount = _N / 2;
+	int threadID = _Direction ? id.y : id.x;
+	
+	// Index calculations??? https://github.com/achalpandeyy/OceanFFT/blob/master/Source/Shaders/CS_FFTHorizontal.comp
+	int inIdx = threadID & (_Stage - 1);
+	int outIdx = ((threadID - inIdx) << 1) + inIdx;
+	
+	float theta = -M_PI * (float(inIdx) / (float) _Stage);
+	
+	// Assign twiddle
+	w = euler(theta);
+	
+	// Referenced Achel Pandeyy's FFT implementation -- had trouble precomputing some indices + twiddle values before
+	int2 aIndices = id.xy;
+	int2 bIndices0 = int2(id.x + threadCount, id.x);
+	int2 bIndices1 = int2(id.y, id.y + threadCount);
+	
+	int2 outIdxWStage = int2(outIdx, outIdx + _Stage);
+	int2 outIndices0 = int2(id.x, id.x);
+	int2 outIndices1 = int2(id.y, id.y);
+	
+	int2 ppX = _Direction ? outIndices0 : outIdxWStage;
+	int2 ppY = _Direction ? outIdxWStage : outIndices1;
+	
+	if (!_PingPong)
+	{
+		float4 a = PingPong0[aIndices];
+		float4 b = PingPong0[int2(bIndices0[_Direction], bIndices1[_Direction])];
+		
+		// output: a + w * b;
+		float2 wb = complexMult(w, b.rg);
+		float4 result0 = float4(a.rg + wb, a.rg - wb);
+		
+		wb = complexMult(w, b.ba);
+		float4 result1 = float4(a.ba + wb, a.ba - wb);
+
+		PingPong1[int2(ppX[0], ppY[0])] = float4(result0.xy, result1.xy); //float4(1, 0, 0, 0);
+		PingPong1[int2(ppX[1], ppY[1])] = float4(result0.zw, result1.zw); // float4(0, 1, 0, 0);
+	}
+	else
+	{
+		float4 a = PingPong1[aIndices];
+		float4 b = PingPong1[int2(bIndices0[_Direction], bIndices1[_Direction])];
+		
+		// output: a + w * b;
+		float2 wb = complexMult(w, b.rg);
+		float4 result0 = float4(a.rg + wb, a.rg - wb);
+		
+		wb = complexMult(w, b.ba);
+		float4 result1 = float4(a.ba + wb, a.ba - wb);
+
+		PingPong0[int2(ppX[0], ppY[0])] = float4(result0.xy, result1.xy);
+		PingPong0[int2(ppX[1], ppY[1])] = float4(result0.zw, result1.zw);
+	}
+}
+
+[numthreads(16, 16, 1)]
+void CS_InvertPermute(uint3 id : SV_DispatchThreadID)
+{
+	float2 perms = float2(-1, 1);
+	int index = (id.x + id.y) % 2;
+	float perm = perms[index];
+	float4 output;
+	float4 h;
+	
+	if (!_PingPong)
+	{
+		h = PingPong0[id.xy];
+	}
+	else
+	{
+		h = PingPong1[id.xy];
+	}
+	
+	output = perm * (h / (float) (_N * _N));
+	Displacement[id.xy] = output;
+}
