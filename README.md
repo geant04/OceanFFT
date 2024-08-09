@@ -3,6 +3,7 @@
 ![movingOceanPreview](https://github.com/user-attachments/assets/93681505-294e-476d-afc6-b712b591e738)
 
 WIP ocean simulation done in Unity, using compute shaders for IFFT calculations
+
 Features:
 - Phillips Spectrum to generate ocean spectra
 - IFFT Tessendorf wave displacement and normal calculations, rendering over 260k waves
