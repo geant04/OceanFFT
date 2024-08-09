@@ -1,4 +1,4 @@
-# Unity Oceans, FFT
+# Unity Oceans, a dive into learning FFTs
 
 ![movingOceanPreview](https://github.com/user-attachments/assets/93681505-294e-476d-afc6-b712b591e738)
 
@@ -6,7 +6,7 @@ WIP ocean simulation done in Unity, using compute shaders for IFFT calculations
 
 Features:
 - Phillips Spectrum to generate ocean spectra
-- IFFT Tessendorf wave displacement and normal calculations, rendering over 260k waves
+- IFFT Tessendorf wave displacement and normal calculations, simulating over 260k waves
 - Detailed water lighting shader using methods from Atlas, presented at GDC 2019
 - Simple tile system with culling
 
