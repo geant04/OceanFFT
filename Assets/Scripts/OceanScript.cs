@@ -40,10 +40,12 @@ public class OceanScript : MonoBehaviour
     [Range(0.0f, 1.0f)] public float timeOfDay;
 
     // RenderTextures
-    private RenderTexture heightMap,
+    private RenderTexture normalBuffer,
                           normalMap,
                           initialSpectrum,
                           spectrumTexture,
+                          spectrumBufferTxt,
+                          normalTexture,
                           FFTBuffer;
 
     private RenderTexture[] heightMaps;
@@ -278,8 +280,14 @@ public class OceanScript : MonoBehaviour
         // Create the spectrum texture
         spectrumTexture = CreateRenderTexture(N, N, RenderTextureFormat.ARGBFloat, false);
 
+        // Create the second spectrum texture for our other IFFT passes
+        spectrumBufferTxt = CreateRenderTexture(N, N, RenderTextureFormat.ARGBFloat, false);
+
         // Create normal map texture
-        normalMap = CreateRenderTexture(N, N, RenderTextureFormat.ARGBFloat, true);
+        normalTexture = CreateRenderTexture(N, N, RenderTextureFormat.ARGBFloat, true);
+
+        // Create normal buffer texture; temporary solution for now
+        normalBuffer = CreateRenderTexture(N, N, RenderTextureFormat.ARGBFloat, true);
 
         // Create buffer texture
         FFTBuffer = CreateRenderTexture(N, N, RenderTextureFormat.ARGBFloat, false);
@@ -310,7 +318,6 @@ public class OceanScript : MonoBehaviour
         OceanComputeShader.Dispatch(initialKernel, initialThreadGroups, initialThreadGroups, 1);
     }
 
-
     // Generates h(k) values which is used as an input texture in our IFFT passes
     void GenerateSpectrum()
     {
@@ -320,22 +327,24 @@ public class OceanScript : MonoBehaviour
         // After generating h0k + h0minusk, we compute h_tilde
         OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_GenerateSpectrum"), "InitialSpectrum", initialSpectrum);
         OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_GenerateSpectrum"), "Spectrum", spectrumTexture);
+        OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_GenerateSpectrum"), "Normals", normalTexture);
+        OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_GenerateSpectrum"), "Spectrum2", spectrumBufferTxt);
         OceanComputeShader.Dispatch(OceanComputeShader.FindKernel("CS_GenerateSpectrum"), threadGroupsX, threadGroupsY, 1);
     }
 
     // Inverts amplitudes by (n,m) s.t (-1)^n * (-1)^m, additionally divides by N^2
-    void InversionPermutePass(bool PingPong, RenderTexture PingPong0, RenderTexture PingPong1, int id)
+    void InversionPermutePass(bool PingPong, RenderTexture PingPong0, RenderTexture PingPong1, RenderTexture Target)
     {
         OceanComputeShader.SetBool("_PingPong", PingPong);
         OceanComputeShader.SetInt("_N", N);
         OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_InvertPermute"), "PingPong0", PingPong0);
         OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_InvertPermute"), "PingPong1", PingPong1);
-        OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_InvertPermute"), "Displacement", heightMaps[id]);
+        OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_InvertPermute"), "Output", Target);
         OceanComputeShader.Dispatch(OceanComputeShader.FindKernel("CS_InvertPermute"), threadGroupsX, threadGroupsY, 1);
     }
 
     // The bulk of our simulation, performs Radix-2 Cooley Tukey IFFT algorithm on GPU via compute shaders
-    void IFFT(RenderTexture PingPong0, RenderTexture PingPong1, int id)
+    void IFFT(RenderTexture PingPong0, RenderTexture PingPong1, RenderTexture Target)
     {
         bool PingPong = false;
         int kernelID = OceanComputeShader.FindKernel("CS_ButterflyPass");
@@ -367,7 +376,7 @@ public class OceanScript : MonoBehaviour
         }
 
         // Send final results to the inversion/permute pass to write to height map
-        InversionPermutePass(PingPong, PingPong0, PingPong1, id);
+        InversionPermutePass(PingPong, PingPong0, PingPong1, Target);
     }
 
     void GenerateHeightMap(int id)
@@ -384,14 +393,34 @@ public class OceanScript : MonoBehaviour
         GenerateSpectrum();
         // Run the inverse FFT to convert frequency data to height data
         // InversionPermutePass is found in here, which later writes to heightMap
-        IFFT(spectrumTexture, FFTBuffer, id);
+
+        // The naming is very confusing here, so here is the explanation:
+        // initialSpectrum is a target buffer containing ifft output of dy and dx
+        // spectrumTexture is a target buffer containing slopeX and slopeZ
+        // normalTexture is a target buffer containing dz and nothing else
+
+        // We will later on call Merger to output (dy, dx, dz, 0) and (n.x, n.y, n.z, 0) normal information
+
+        IFFT(spectrumTexture, FFTBuffer, initialSpectrum);
+        IFFT(spectrumBufferTxt, FFTBuffer, spectrumTexture);
+        IFFT(normalTexture, FFTBuffer, normalBuffer);
+
+        OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_MergeTextures"), "Spectrum", initialSpectrum);
+        OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_MergeTextures"), "Spectrum2", spectrumTexture);
+        OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_MergeTextures"), "Input", normalBuffer);
+        OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_MergeTextures"), "Displacement", heightMaps[id]);
+        OceanComputeShader.SetTexture(OceanComputeShader.FindKernel("CS_MergeTextures"), "Normals", normalTexture);
+        OceanComputeShader.Dispatch(OceanComputeShader.FindKernel("CS_MergeTextures"), threadGroupsX, threadGroupsY, 1);
 
         // Generate mipmaps to reduce artifacts at a far-away distance
         heightMaps[id].GenerateMips();
         OceanMaterial.SetFloat("_TileSize", Size.x);
 
         string displacementTxt = "_DisplacementTexture" + id;
+        string normalTxt = "_NormalTexture" + id;
         OceanMaterial.SetTexture(displacementTxt, heightMaps[id]);
+        OceanMaterial.SetTexture(normalTxt, normalTexture);
+        OceanMaterial.SetFloat("_N", N);
     }
 
     bool AreParamsDifferent()
@@ -490,9 +519,9 @@ public class OceanScript : MonoBehaviour
         }
 
         // Compute h(k) using h0(k) + conjugate of h0(-k)
-        OceanComputeShader.SetFloat("_Time", Time.time + 100.0f);
+        OceanComputeShader.SetFloat("_Time", Time.time + 1000.0f);
         GenerateHeightMap(0);
-        GenerateHeightMap(1);
+        //GenerateHeightMap(1);
 
         if (EnableMovingCamera) MainCamera.transform.position += new Vector3(0, 0, 1) * CameraSpeed * Time.deltaTime;
     }

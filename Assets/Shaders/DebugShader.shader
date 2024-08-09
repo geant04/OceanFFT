@@ -3,17 +3,17 @@ Shader "Custom/OceanShader"
     Properties
     {
         // darker green colors
-        _ScatterColor("Scatter Color", Color) = (0.3291799, 0.6886792, 0.6886792,1)
-        _BubbleColor("Bubble Color", Color) = (0.03393853, 0.07999937, 0.1037736, 1)
+        _ScatterColor("Scatter Color", Color) = (0.6855345, 0.8911644, 1.0,1)
+        _BubbleColor("Bubble Color", Color) = (0.03512517, 0.2297952, 0.3490566, 1)
         _SunColor("Sun Color", Color) = (1.0, 1.0, 1.0, 1)
 
         // fun parameters for tweaking
         _Range("Range", Range(0,1)) = 0.642
         _Bias("Height Bias", Range(0,1)) = 0
-        _k1("Height Scatter Strength", Range(0,1)) = 0.609
-        _k2("Light Reflectance", Range(0, 1)) = 0.194
+        _k1("Height Scatter Strength", Range(0,1)) = 0.6
+        _k2("Light Reflectance", Range(0, 1)) = 0.1
         _k3("Lambert bias", Range(0,1)) = 0.146
-        _pf("Bubble density", Range(0,1)) = 0.219
+        _pf("Bubble density", Range(0,1)) = 0.11
 
         _t("T", Range(0,1)) = 0.566
     }
@@ -45,6 +45,8 @@ Shader "Custom/OceanShader"
 
         sampler2D _DisplacementTexture0;
         sampler2D _DisplacementTexture1;
+        sampler2D _NormalTexture0;
+
         float _N0;
         float _N1;
 
@@ -65,16 +67,15 @@ Shader "Custom/OceanShader"
 
             float3 localVertex = v.vertex.xyz;
             float4 worldPos = mul(unity_ObjectToWorld, float4(localVertex, 1.0));
-            i.uv = worldPos.xz / _TileSize;
+            i.uv = worldPos.xz / _TileSize * _d0Scale;
 
             // convert from 0-1 to -1 to 1?
-            float2 dy = 
-                _t0 * 2.0 * tex2Dlod(_DisplacementTexture0, float4(i.uv * _d0Scale, 0, 0)).rb
-                + _t1 * tex2Dlod(_DisplacementTexture1, float4(i.uv * _d1Scale, 0, 0)).rb;
+            float4 dydxdz = tex2Dlod(_DisplacementTexture0, float4(i.uv, 0, 0));
 
             localVertex.y = 1;
-            localVertex.y *= dy.r;
-            localVertex.xz += dy.g;
+            localVertex.y *= dydxdz.r;
+            localVertex.x += dydxdz.g;
+            localVertex.z += dydxdz.b;
             localVertex.y -= 0.025; // adjustable parameter
             //localVertex = v.vertex.xyz;
 
@@ -159,8 +160,8 @@ Shader "Custom/OceanShader"
 
         float3 FresnelSchlick(float3 theta) 
         {
-            float3 F0 = 0.02;
-            return F0 + (1 - F0) * pow(1.f - theta, 5.0f);
+            float3 F0 = 0.04;
+            return F0 + (1 - F0) * pow(1.0 - theta, 5.0f);
         }
 
         float pdf(float2 xy) {
@@ -209,8 +210,11 @@ Shader "Custom/OceanShader"
             float2 dyTest = float2(_t0 * tex2Dlod(_DisplacementTexture0, float4(i.uv * _d0Scale, 0, 0)).r,
                 _t1 * tex2Dlod(_DisplacementTexture1, float4(i.uv * _d1Scale, 0, 0)).r);
 
-            //return float4(dyTest.r * 512.0, 0, dyTest.g * 512.0, 1.0);
+            float4 dydxdz = tex2Dlod(_DisplacementTexture0, float4(i.uv, 0, 0));
+            float4 nxnynz = tex2Dlod(_NormalTexture0, float4(i.uv, 0, 0));
 
+
+            normal = normalize(nxnynz.rgb);
 
             // actual stuff
             float3 wo = normalize(-i.viewDir);
@@ -222,34 +226,25 @@ Shader "Custom/OceanShader"
             // Ambient diffuse + subsurface scattering lighting
             float3 sctrNor = normal;
             float3 sctrWh = normalize(-wo + sctrNor);
-            float3 l_sctr = L_Scatter(wi, -wo, sctrWh, dy.r * 20.0 + 0.05);
-            //float3 l_sctr = L_Scatter2(wi, -wo, sctrNor, dy);
+            float3 l_sctr = L_Scatter(wi, -wo, sctrWh, dydxdz.r * 15.0 + 0.01);
 
             // Environment reflections / glossy -- non PBR
-            float3 fresNor = normal;
-            float3 fresWh = normalize(-wo + fresNor);
-            float fresTheta = max(dot(-fresNor, wo), 0.0);
-            float3 F = FresnelSchlick(fresTheta);
+            float3 fresWh = normalize(wo + normal);
+            float fresTheta = max(dot(0.92f * fresWh, wo), 0.0);
+            float3 F = FresnelSchlick(1.0f - fresTheta);
 
             float3 reflNor = normalize(normal);
             float3 refl = normalize(reflect(wo, reflNor));
-            float3 env_irradiance = sampleSky(refl, wi);
-            float3 lo_env = env_irradiance;
+            float3 env_irradiance = GetSkyColorFromOcean(refl, wi);
+            float3 lo_env = env_irradiance * 0.55f;
              
             // Additional specular highlights from the sun
             wh = normalize(-wo + wi);
             float3 spec = pow(abs(dot(-normal, wh)), 128.0);
-            float3 lo_sun = _LightColor0.xyz * spec * 0.04;
-
-            wo = -wo;
-            //wh = normalize(wo + wi);
-            float3 loSunNum = _LightColor0.xyz * FresnelSchlick(max(dot(wh, wi), 0));
-            //float3 loSunDenom = 4 * max(dot(float3(0, 0, 1), wo)); // masking and shadowing
+            float3 lo_sun = _LightColor0.xyz * spec * 4.0;
 
             // Additional variable naming for organization
-            float3 lo = lerp(l_sctr, lo_env + lo_sun, F);
-
-            float3 testFloat = normal.g;
+            float3 lo = (1 - F) * l_sctr + F * (lo_sun + lo_env);
 
             return float4(lo, 1.0);
         }

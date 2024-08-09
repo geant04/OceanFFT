@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 705507994}
-  m_IndirectSpecularColor: {r: 0.38225162, g: 0.6761262, b: 0.848001, a: 1}
+  m_IndirectSpecularColor: {r: 0.7996205, g: 0.91053855, b: 0.99999946, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -256,15 +256,15 @@ MonoBehaviour:
   OceanComputeShader: {fileID: 7200000, guid: c710cf8bffb381b4cb71b2ad8371a8f4, type: 3}
   OceanShader: {fileID: 4800000, guid: ac5f381ac493f3a4c847a58b320ba68d, type: 3}
   SkyMaterial: {fileID: 2100000, guid: af048793e6e849a4094569d7021bc211, type: 2}
-  Size: {x: 16, y: 16}
+  Size: {x: 20, y: 20}
   planeResolution: 64
   N: 512
-  L: 2000000010000000
+  L: 8000000010000000
   intensity:
   - 64
   - 64
   windSpeed:
-  - 64
+  - 32
   - 64
   waveSize:
   - 100
@@ -275,7 +275,7 @@ MonoBehaviour:
   t0: 2
   t1: 4
   windDirection: {x: 8, y: 1}
-  EnableMovingCamera: 1
+  EnableMovingCamera: 0
   CameraSpeed: 20
   timeOfDay: 1
 --- !u!1 &705507993

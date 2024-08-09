@@ -2,6 +2,7 @@
 #pragma kernel CS_GenerateSpectrum	     // 1
 #pragma kernel CS_ButterflyPass			 // 3
 #pragma kernel CS_InvertPermute			 // 4
+#pragma kernel CS_MergeTextures
 
 #define PI 3.14159265358979323846
 #define M_PI 3.1415926535897932384626433832795
@@ -9,6 +10,7 @@
 // TextureBuffers
 RWTexture2D<float4> InitialSpectrum;
 RWTexture2D<float4> Spectrum;
+RWTexture2D<float4> Spectrum2;
 RWTexture2D<float4> Displacement;
 RWTexture2D<float4> Normals;
 
@@ -152,17 +154,24 @@ void CS_GenerateSpectrum(uint3 id : SV_DispatchThreadID)
 	
 	float2 realComp = complexMult(InitialReal, exp);
 	float2 complexComp = complexMult(InitialConjugate, float2(exp.x, -exp.y));
-	float2 htilde = realComp + complexComp;
-	float2 ih = float2(-htilde.y, htilde.x);
+	float2 h = realComp + complexComp;
+	float2 ih = float2(-h.y, h.x);
 	
 	// Refer to the Tessendorf paper for the equation.
 	// Let's do an experiment: see if writing to the other two channels left works.
 	// https://developer.download.nvidia.com/assets/gamedev/files/sdk/11/OceanCS_Slides.pdf
-	float2 dy = htilde;
-	float2 dx = ih * k.x;
-	float2 dz = ih * k.y;
+	kmag = max(0.0001, kmag);
+	
+	float2 dx = ih * k.x / kmag;
+	float2 dy = h;
+	float2 dz = ih * k.y / kmag;
+	
+	float2 hSlopeX = complexMult(h, float2(0, k.x));
+	float2 hSlopeZ = complexMult(h, float2(0, k.y));
 	
 	Spectrum[id.xy] = float4(dy, dx);
+	Spectrum2[id.xy] = float4(dz, 0, 0);
+	Normals[id.xy] = float4(hSlopeX, hSlopeZ);
 	
 	// TO DO: Choppy waves, realComp + complexComp = dy, store (dx,dz) next
 	// https://tore.tuhh.de/entities/publication/1cd390d3-732b-41c1-aa2b-07b71a64edd2 provides very helpful code in their Appendices.
@@ -253,5 +262,20 @@ void CS_InvertPermute(uint3 id : SV_DispatchThreadID)
 	}
 	
 	output = perm * (h / (float) (_N * _N));
-	Displacement[id.xy] = output;
+	Output[id.xy] = output;
+}
+
+[numthreads(16, 16, 1)]
+void CS_MergeTextures(uint3 id : SV_DispatchThreadID)
+{
+	float4 Dy_Dx = Spectrum[id.xy];
+	float4 Dz = Spectrum2[id.xy];
+	float4 Sx_Sz = Input[id.xy];
+	float lambda = 0.50;
+	
+	float3 n = float3(-Sx_Sz.x, (1.0 / _N), -Sx_Sz.z);
+	normalize(n);
+	
+	Displacement[id.xy] = float4(lambda * Dy_Dx.x, Dy_Dx.z, lambda * Dz.x, 0.0);
+	Normals[id.xy] = float4(n, 0.0);
 }
