@@ -275,7 +275,7 @@ MonoBehaviour:
   t0: 2
   t1: 4
   windDirection: {x: 8, y: 1}
-  EnableMovingCamera: 0
+  EnableMovingCamera: 1
   CameraSpeed: 20
   timeOfDay: 1
 --- !u!1 &705507993
