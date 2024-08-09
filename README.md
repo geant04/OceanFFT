@@ -8,7 +8,7 @@ Features:
 - Phillips Spectrum to generate ocean spectra
 - IFFT Tessendorf wave displacement and normal calculations, simulating over 260k waves
 - Detailed water lighting shader using methods from Atlas, presented at GDC 2019
-- Simple tile system with culling
+- Simple tile system with culling, allowing dynamic camera motion
 
 Future features:
 - Tiling and blending on the ocean surface itself, faster than simulating cascades, method from Ubisoft and presented at HPG 24
