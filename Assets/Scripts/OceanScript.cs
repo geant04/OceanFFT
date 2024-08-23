@@ -524,5 +524,7 @@ public class OceanScript : MonoBehaviour
         //GenerateHeightMap(1);
 
         if (EnableMovingCamera) MainCamera.transform.position += new Vector3(0, 0, 1) * CameraSpeed * Time.deltaTime;
+
+        DynamicGI.UpdateEnvironment();
     }
 }

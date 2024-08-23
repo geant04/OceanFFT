@@ -3,8 +3,8 @@ Shader "Custom/OceanShader"
     Properties
     {
         // darker green colors
-        _ScatterColor("Scatter Color", Color) = (0.6855345, 0.8911644, 1.0,1)
-        _BubbleColor("Bubble Color", Color) = (0.03512517, 0.2297952, 0.3490566, 1)
+        _ScatterColor("Scatter Color", Color) = (0.7610062, 0.9648539, 1.0,1)
+        _BubbleColor("Bubble Color", Color) = (0.7893081, 0.9209905, 0.9959149, 1)
         _SunColor("Sun Color", Color) = (1.0, 1.0, 1.0, 1)
 
         // fun parameters for tweaking
@@ -13,7 +13,7 @@ Shader "Custom/OceanShader"
         _k1("Height Scatter Strength", Range(0,1)) = 0.6
         _k2("Light Reflectance", Range(0, 1)) = 0.1
         _k3("Lambert bias", Range(0,1)) = 0.146
-        _pf("Bubble density", Range(0,1)) = 0.11
+        _pf("Bubble density", Range(0,1)) = 0.14
 
         _t("T", Range(0,1)) = 0.566
     }
@@ -46,6 +46,7 @@ Shader "Custom/OceanShader"
         sampler2D _DisplacementTexture0;
         sampler2D _DisplacementTexture1;
         sampler2D _NormalTexture0;
+        sampler2D _CameraDepthTexture;
 
         float _N0;
         float _N1;
@@ -74,13 +75,13 @@ Shader "Custom/OceanShader"
 
             localVertex.y = 1;
             localVertex.y *= dydxdz.r;
-            localVertex.x += dydxdz.g;
-            localVertex.z += dydxdz.b;
+            localVertex.x += dydxdz.g * 16.0;
+            localVertex.z += dydxdz.b * 16.0;
             localVertex.y -= 0.025; // adjustable parameter
             //localVertex = v.vertex.xyz;
 
             i.vertex = UnityObjectToClipPos(localVertex);
-            i.viewDir = WorldSpaceViewDir(float4(localVertex, 1.0));
+            i.viewDir = WorldSpaceViewDir(float4(v.vertex.xyz, 1.0));
             i.worldPos = worldPos;
 
             return i;
@@ -122,41 +123,21 @@ Shader "Custom/OceanShader"
             return normal;
         }
 
-        // from the beautiful Atlas presentation
-        float3 L_Scatter(float3 wi, float3 wo, float3 wh, float h) 
-        {
+        float3 L_Scatter(float3 wi, float3 wo, float3 wh, float h) {
+            // in a way, H is like the ambience... or something like that
             float H = max(0, h) * 2.0;
             float hTerm = _k1 * H * pow(max(dot(wo, -wi), 0.0), 4.0);
             float halfLamb = pow(0.5 - 0.5 * max(dot(wi, wh), 0.0), 1.0);
             float refl = _k2 * pow(max(dot(wo, wh), 0.0), 2.0);
 
+            float3 SunColor = _LightColor0 * 0.30;
             float lambert = _k3 * max(dot(wh, wi), 0.0);
-            float3 lo = (hTerm * halfLamb + refl) * _ScatterColor * _LightColor0;
-            lo += lambert * _ScatterColor * _SunColor + _pf * _BubbleColor * _LightColor0;
+            float3 lo = (hTerm * halfLamb + refl) * _ScatterColor * SunColor;
+            lo += lambert * _ScatterColor * SunColor + _pf * _BubbleColor * SunColor;
 
             return lo;
         }
 
-        // Different SSS approach
-        float3 L_Scatter2(float3 wi, float3 wo, float3 n, float dy)
-        {
-            float distortion = 1.0;
-            float power = 1.5;
-            float scale = 5.0;
-            float attenuation = _k2 * pow(max(dot(wo, normalize(n -wi)), 0.0), 2.0);
-
-            float3 wh = normalize(wi + n * distortion);
-            float vdotH = pow(saturate(dot(wo, -wh)), power) * scale; // angle from view to normal + distortion
-
-            float h = 20.0 * dy;
-            float thickness = _k1 * h * pow(max(dot(wo, -wi), 0.0), 4.0);
-
-            float3 lo = attenuation * (vdotH * _ScatterColor) * thickness;
-            lo = _ScatterColor * _LightColor0 * lo;
-            lo += _pf * _BubbleColor * _LightColor0;
-
-            return lo;
-        }
 
         float3 FresnelSchlick(float3 theta) 
         {
@@ -196,12 +177,6 @@ Shader "Custom/OceanShader"
                 + _t1 * getNormal(_DisplacementTexture1, i.uv * _d1Scale);
 
             normal = normalize(normal);
-
-            //normal = normalize(float3(normal.x, 1.0f, normal.b));
-            //normal = normalize(UnityObjectToWorldNormal(normalize(normal)));
-
-            //normal = normalize(float3(-normal.x, 1.0f, -normal.y));
-            //return float4(normal.r, 0, normal.b, 1.0);
             
             float2 dy = 
                 _t0 * tex2Dlod(_DisplacementTexture0, float4(i.uv * _d0Scale, 0, 0)).rb
@@ -215,36 +190,48 @@ Shader "Custom/OceanShader"
 
 
             normal = normalize(nxnynz.rgb);
+            //normal = normalize(UnityObjectToWorldNormal(normalize(normal)));
 
             // actual stuff
             float3 wo = normalize(-i.viewDir);
+            //if (dot(normal, wo) < 0) normal = -normal;
+
             float3 wi = normalize((_WorldSpaceLightPos0));
             float3 wh = normalize(-wo + normal);
 
-            //if (dot(normal, wo) < 0) normal = -normal;
 
             // Ambient diffuse + subsurface scattering lighting
             float3 sctrNor = normal;
             float3 sctrWh = normalize(-wo + sctrNor);
-            float3 l_sctr = L_Scatter(wi, -wo, sctrWh, dydxdz.r * 15.0 + 0.01);
+            float3 l_sctr = L_Scatter(wi, -wo, sctrWh, dydxdz.r * (20.9) + 0.07);
 
             // Environment reflections / glossy -- non PBR
             float3 fresWh = normalize(wo + normal);
-            float fresTheta = max(dot(0.92f * fresWh, wo), 0.0);
-            float3 F = FresnelSchlick(1.0f - fresTheta);
+            float fresTheta = max(dot(0.75 * fresWh, wo), 0.0);
+            float3 F = FresnelSchlick(fresTheta);
 
-            float3 reflNor = normalize(normal);
+            float3 reflNor = (normal + float3(0.0, 2.5, 0.0)) * 0.50;
             float3 refl = normalize(reflect(wo, reflNor));
-            float3 env_irradiance = GetSkyColorFromOcean(refl, wi);
-            float3 lo_env = env_irradiance * 0.55f;
+            float3 env_irradiance = UNITY_SAMPLE_TEXCUBE(unity_SpecCube0, refl);
+                //GetSkyColorFromOcean(refl, wi);
+            float3 lo_env = env_irradiance * 3.0;
              
             // Additional specular highlights from the sun
             wh = normalize(-wo + wi);
-            float3 spec = pow(abs(dot(-normal, wh)), 128.0);
-            float3 lo_sun = _LightColor0.xyz * spec * 4.0;
+            float3 spec = pow(abs(dot(normal, wh)), 128.0);
+            float3 lo_sun = _LightColor0.xyz * spec * 2.0;
 
             // Additional variable naming for organization
             float3 lo = (1 - F) * l_sctr + F * (lo_sun + lo_env);
+
+
+            float dist = length(i.worldPos - _WorldSpaceCameraPos) / 150.0;
+
+            float density = 1.0;
+            dist = pow(2, -1.0 * pow(dist * density, 2.0));
+            dist = 1.0 - dist;
+
+            lo = lerp(lo, float3(1.0, 1.0, 1.0), dist);
 
             return float4(lo, 1.0);
         }
