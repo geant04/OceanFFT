@@ -231,6 +231,8 @@ Shader "Custom/OceanShader"
             dist = pow(2, -1.0 * pow(dist * density, 2.0));
             dist = 1.0 - dist;
 
+            if (dist > 0.94) discard;
+
             lo = lerp(lo, float3(1.0, 1.0, 1.0), dist);
 
             return float4(lo, 1.0);
