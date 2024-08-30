@@ -1,6 +1,7 @@
 # Unity Oceans, a dive into learning FFTs
 
-![movingOceanPreview](https://github.com/user-attachments/assets/93681505-294e-476d-afc6-b712b591e738)
+[<img width="1271" alt="oceanWaves" src="https://github.com/user-attachments/assets/90642ecd-3b18-4ac3-9721-d505fadcd4e6">](https://www.youtube.com/watch?v=BKVFjIQPg6M)
+
 
 WIP ocean simulation done in Unity, using compute shaders for IFFT calculations
 
