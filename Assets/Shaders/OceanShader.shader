@@ -3,8 +3,8 @@ Shader "Custom/OceanShader"
     Properties
     {
         // darker green colors
-        _ScatterColor("Scatter Color", Color) = (0.7610062, 1.0, 0.988083, 1.0)
-        _BubbleColor("Bubble Color", Color) = (0.0, 0.8823528, 1.0, 1)
+        _ScatterColor("Scatter Color", Color) = (1.0, 1.0, 1.0, 1.0)
+        _BubbleColor("Bubble Color", Color) = (0.02515715, 0.7057394, 1.0, 1)
         _SunColor("Sun Color", Color) = (1.0, 1.0, 1.0, 1)
 
         // fun parameters for tweaking
@@ -13,7 +13,7 @@ Shader "Custom/OceanShader"
         _k1("Height Scatter Strength", Range(0,1)) = 0.69
         _k2("Light Reflectance", Range(0, 1)) = 0.07
         _k3("Lambert bias", Range(0,1)) = 0.02
-        _pf("Bubble density", Range(0,1)) = 0.18
+        _pf("Bubble density", Range(0,1)) = 0.109
 
         _t("T", Range(0,1)) = 0.566
     }
@@ -151,23 +151,23 @@ Shader "Custom/OceanShader"
             // Ambient diffuse + subsurface scattering lighting
             float3 sctrNor = normal;
             float3 sctrWh = normalize(-wo + sctrNor);
-            float3 l_sctr = L_Scatter(wi, -wo, sctrWh, dydxdz.r * (20.9) + 0.07);
+            float3 l_sctr = L_Scatter(wi, -wo, sctrWh, 2.2 * (dydxdz.r * (5.9) + 0.05));
 
             // Environment reflections / glossy -- non PBR
             float3 fresWh = normalize(wo + normal);
-            float fresTheta = max(dot(0.5 * fresWh, wo), 0.0);
+            float fresTheta = max(dot(0.65 * fresWh, wo), 0.0);
             float3 F = FresnelSchlick(fresTheta);
 
             float3 reflNor = normal;
             float3 refl = normalize(reflect(wo, reflNor));
             float3 env_irradiance = UNITY_SAMPLE_TEXCUBE(unity_SpecCube0, refl);
                 //GetSkyColorFromOcean(refl, wi);
-            float3 lo_env = env_irradiance;
+            float3 lo_env = env_irradiance + 0.25;
              
             // Additional specular highlights from the sun
             wh = normalize(-wo + wi);
             float3 spec = pow(abs(dot(normal, wh)), 128.0);
-            float3 lo_sun = _LightColor0.xyz * spec * 2.0;
+            float3 lo_sun = _LightColor0.xyz * spec * 8.0;
 
             // Additional variable naming for organization
             float3 lo = (1 - F) * l_sctr + F * (lo_sun + lo_env);
@@ -182,7 +182,7 @@ Shader "Custom/OceanShader"
 
             lo = lerp(lo, float3(1.0, 1.0, 1.0), dist);
 
-            return float4(lo, 1.0);
+            return float4(1.2 * lo, 1.0);
         }
 
         ENDCG

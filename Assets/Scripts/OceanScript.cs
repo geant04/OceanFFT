@@ -36,7 +36,9 @@ public class OceanScript : MonoBehaviour
     [SerializeField] [Range(0.0f, 10.0f)] float t1;
     [SerializeField] Vector2 windDirection;
     [SerializeField] bool EnableMovingCamera;
+    [SerializeField] bool EnableSpinnyCamera;
     [SerializeField] float CameraSpeed;
+    [SerializeField] Vector3 ogCameraAngle;
     [Range(0.0f, 1.0f)] public float timeOfDay;
 
     // RenderTextures
@@ -60,7 +62,10 @@ public class OceanScript : MonoBehaviour
     private float[] prevIntensity = { 0, 0 };
     private float[] prevWindSpeed = { 0, 0 };
     private float[] prevWaveSize = { 0, 0 };
+    private float[] prevWindDirection = { 0, 0 };
     private float prevTimeOfDay;
+    private float animCameraSpeed;
+    private Vector3 currentAngle;
 
     // Tiling camera stuff
     private Vector3 previousCameraPosition;
@@ -184,7 +189,7 @@ public class OceanScript : MonoBehaviour
         HashSet<Vector3> newTiles = new HashSet<Vector3>();
 
         float cullingMargin = 60f; // Adjust the culling margin
-        int fanAngle = 120; // this is incredibly slow but it works for now
+        int fanAngle = 160; // this is incredibly slow but it works for now
 
         for (int i = -fanAngle / 2; i <= fanAngle / 2; i += 2)
         {
@@ -387,6 +392,8 @@ public class OceanScript : MonoBehaviour
         OceanComputeShader.SetFloat("_Intensity", intensity[id]);
         OceanComputeShader.SetFloat("_WindSpeed", windSpeed[id]);
         OceanComputeShader.SetFloat("_WaveSize", waveSize[id]);
+        OceanComputeShader.SetFloat("_WindDirectionX", windDirection[0]);
+        OceanComputeShader.SetFloat("_WindDirectionY", windDirection[1]);
 
         GenerateInitialSpectrum();
 
@@ -436,6 +443,9 @@ public class OceanScript : MonoBehaviour
             noChange = noChange || waveSize[i] != waveSize[i];
         }
 
+        noChange = noChange || prevWindDirection[0] != windDirection[0];
+        noChange = noChange || prevWindDirection[1] != windDirection[1];
+
         return noChange;
     }
 
@@ -455,6 +465,9 @@ public class OceanScript : MonoBehaviour
             prevWindSpeed[i] = windSpeed[i];
             prevWaveSize[i] = waveSize[i];
         }
+
+        prevWindDirection[0] = windDirection[0];
+        prevWindDirection[1] = windDirection[1];
     }
 
     void AssignShaderUniforms()
@@ -475,6 +488,9 @@ public class OceanScript : MonoBehaviour
         OceanMaterial.SetFloat("_t0", t0);
         OceanMaterial.SetFloat("_t1", t1);
     }
+
+    private float velocity = 0f;          // For SmoothDamp
+    private float angleVelocity = 0f;          // For SmoothDamp
 
     void Update()
     {
@@ -523,7 +539,31 @@ public class OceanScript : MonoBehaviour
         GenerateHeightMap(0);
         //GenerateHeightMap(1);
 
-        if (EnableMovingCamera) MainCamera.transform.position += new Vector3(0, 0, 1) * CameraSpeed * Time.deltaTime;
+        if (!EnableMovingCamera)
+        {
+            animCameraSpeed = Mathf.SmoothDamp(animCameraSpeed, 0f, ref velocity, 0.35f);
+        }
+        else
+        {
+            animCameraSpeed = Mathf.SmoothDamp(animCameraSpeed, CameraSpeed, ref velocity, 0.35f);
+        }
+
+        if (EnableSpinnyCamera)
+        {
+            float targetAngle = Mathf.Sin(1.5f * Mathf.Sin(Time.time * 0.85f)) * 20.0f;
+            currentAngle.y = Mathf.SmoothDampAngle(currentAngle.y, targetAngle, ref angleVelocity, 0.3f);
+            MainCamera.transform.localRotation = Quaternion.Euler(ogCameraAngle.x, currentAngle.y, ogCameraAngle.z);
+        }
+        else
+        {
+            //currentAngle.x = Mathf.SmoothDampAngle(currentAngle.x, ogCameraAngle.x, ref angleVelocity, 0.3f);
+            currentAngle.y = Mathf.SmoothDampAngle(currentAngle.y, ogCameraAngle.y, ref angleVelocity, 0.6f);
+            //currentAngle.z = Mathf.SmoothDampAngle(currentAngle.z, ogCameraAngle.z, ref angleVelocity, 0.3f);
+
+            MainCamera.transform.localRotation = Quaternion.Euler(ogCameraAngle.x, currentAngle.y, ogCameraAngle.z);
+        }
+
+        MainCamera.transform.position += new Vector3(0, 0, 1) * animCameraSpeed * Time.deltaTime;
 
         DynamicGI.UpdateEnvironment();
     }

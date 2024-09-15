@@ -27,6 +27,8 @@ uint _HorizontalPatch;
 float _Intensity;
 float _WindSpeed;
 float _WaveSize;
+float _WindDirectionX;
+float _WindDirectionY;
 
 // IFFT
 uint _Stage;
@@ -80,7 +82,7 @@ float2 GatherWaveNumber(float2 id)
 float2 PhillipsSpectrum(float2 k)
 {
 	float WindSpeed = _WindSpeed;
-	float2 WindDirection = float2(1, 1);
+	float2 WindDirection = float2(_WindDirectionX, _WindDirectionY);
 	
 	// A represents intensity
 	float A = _Intensity;
