@@ -211,24 +211,20 @@ MonoBehaviour:
   Size: {x: 20, y: 20}
   planeResolution: 64
   N: 512
-  L: 8000000010000000
+  L: 20000000
   intensity:
-  - 64
-  - 64
+  - 4000
   windSpeed:
-  - 32
-  - 64
+  - 128
   waveSize:
-  - 100
-  - 100
+  - 1000
   Scales:
-  - 0.25
-  - 1
+  - 0.35
   t0: 2
   t1: 4
   windDirection: {x: 8, y: 1}
   EnableMovingCamera: 1
-  CameraSpeed: 20
+  CameraSpeed: 15
   timeOfDay: 1
 --- !u!4 &61521895
 Transform:
@@ -455,7 +451,7 @@ Camera:
     height: 1
   near clip plane: 0.3
   far clip plane: 1000
-  field of view: 38
+  field of view: 65
   orthographic: 0
   orthographic size: 5
   m_Depth: -1
@@ -502,13 +498,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1290589331}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.057755213, y: -0.030316863, z: 0.0017546953, w: 0.99786884}
-  m_LocalPosition: {x: -64.8, y: 1.38, z: -8.8}
+  m_LocalRotation: {x: 0.1379859, y: -0.030073378, z: 0.004191751, w: 0.98996866}
+  m_LocalPosition: {x: -64.8, y: 0.5, z: -8.8}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 6.625, y: -3.48, z: 0}
+  m_LocalEulerAnglesHint: {x: 15.87, y: -3.48, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
